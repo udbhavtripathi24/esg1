@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" fill="none">
+  <text
+    x="0" y="62"
+    font-family="'Arial Black', 'Arial', sans-serif"
+    font-weight="900"
+    font-size="68"
+    fill="#000000"
+    letter-spacing="-1"
+  >Deloitte</text>
+  <circle cx="308" cy="62" r="11" fill="#86BC25"/>
+</svg>
