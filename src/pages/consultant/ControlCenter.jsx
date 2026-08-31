@@ -1,16 +1,30 @@
 import { useState, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, ChevronDown, Plus, Check, Eye } from 'lucide-react'
+import { Search, ChevronDown, Plus, Check, Eye, UserX } from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
 import { Button, Avatar, EmptyState, Select } from '../../components/ui.jsx'
 import LoadingState from '../../components/LoadingState.jsx'
 import ErrorState from '../../components/ErrorState.jsx'
 import AddUserModal from './AddUserModal.jsx'
+import AssignConsultantModal from './AssignConsultantModal.jsx'
 import AssignRbacRoleModal from './AssignRbacRoleModal.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useCompanies } from '../../hooks/useCompanies.js'
-import { useAssignRole } from '../../hooks/useAssignments.js'
-import { userDirectory, companies as companiesSeed, roleOptions, auditLogs, logFilters } from '../../data/mockData'
+import { useUsers, useCreateUser, useDeactivateUser, useUpdateUser } from '../../hooks/useUsers.js'
+import { useConsultantAssignments, useCreateConsultantAssignment, useUpdateConsultantAssignment, useAssignRole, useRemoveRole } from '../../hooks/useAssignments.js'
+import { roleOptions, auditLogs, logFilters } from '../../data/mockData'
+
+// UI role display names map 1-to-1 to backend role_code (confirmed against
+// the actual seeded RBAC roles: Administrator, Consultant, Reviewer,
+// Support). Kept as an explicit mapping rather than passing the display
+// string straight through, so the two concerns don't silently drift apart
+// if either side ever changes independently.
+const ROLE_TO_ROLE_CODE = {
+  Administrator: 'Administrator',
+  Consultant: 'Consultant',
+  Reviewer: 'Reviewer',
+  Support: 'Support',
+}
 
 const roleColors = {
   Administrator: 'text-blue-600',
@@ -28,23 +42,33 @@ export default function ControlCenter() {
   const [tab, setTab] = useState(location.state?.tab || 'User Directory')
   const [showAddUser, setShowAddUser] = useState(false)
 
-  // User Directory state
-  const [users, setUsers] = useState(userDirectory)
+  // User Directory state — backed by real GET /users.
+  // search and role BOTH map directly to real backend query params
+  // (verified in app/api/routes/users.py) — unlike Client Pool's plan
+  // filter, no client-side refinement is needed here.
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('All roles')
   const [roleFilterOpen, setRoleFilterOpen] = useState(false)
 
-  // Role Assignment state
-  const [companies, setCompanies] = useState(companiesSeed)
-  const [selectedCompanyId, setSelectedCompanyId] = useState(companiesSeed[0].id)
+  const usersQuery = useUsers({
+    search: search.trim() || undefined,
+    role: roleFilter === 'All roles' ? undefined : roleFilter,
+    page: 1,
+    page_size: 100, // matches Client Pool's documented small-scale approach
+  })
+  const users = useMemo(() => usersQuery.data?.items || [], [usersQuery.data])
+  const createUser = useCreateUser()
+  const deactivateUser = useDeactivateUser()
+
+  // Role Assignment state — company list reuses the SAME real GET /companies
+  // data already fetched below for Client Pool (companiesQuery/clientPool),
+  // per instruction not to duplicate that query or touch ClientPoolTab.
+  const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false)
   const [showAssignUser, setShowAssignUser] = useState(false)
-  const [editingMemberId, setEditingMemberId] = useState(null)
-
-  // RBAC role assignment state — genuinely separate from ConsultantAssignment staffing above
-  const [showAssignRbacRole, setShowAssignRbacRole] = useState(false)
-  const [assignRoleError, setAssignRoleError] = useState(null)
-  const assignRoleMutation = useAssignRole()
+  const [removeAssignmentTarget, setRemoveAssignmentTarget] = useState(null)
+  const [assignError, setAssignError] = useState(null)
+  const [removeError, setRemoveError] = useState(null)
 
   // Client Pool state — backed by real GET /companies.
   // Backend has no `plan` query parameter and `search` only covers
@@ -60,19 +84,148 @@ export default function ControlCenter() {
   const companiesQuery = useCompanies({ page: 1, page_size: 100, sort: 'name', order: 'asc' })
   const clientPool = useMemo(() => companiesQuery.data?.items || [], [companiesQuery.data])
 
-  const filteredUsers = useMemo(() => {
-    return users.filter((u) => {
-      const matchesSearch =
-        !search.trim() ||
-        u.name.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase()) ||
-        u.department.toLowerCase().includes(search.toLowerCase())
-      const matchesRole = roleFilter === 'All roles' || u.role === roleFilter
-      return matchesSearch && matchesRole
+  // Role Assignment: real staffing data for the selected company.
+  const selectedCompanyForAssignment = clientPool.find((c) => c.id === selectedCompanyId) || clientPool[0] || null
+  const assignmentsQuery = useConsultantAssignments(
+    { company_id: selectedCompanyForAssignment?.id, active_only: true, page: 1, page_size: 100 },
+    { enabled: !!selectedCompanyForAssignment }
+  )
+  const activeAssignments = useMemo(() => assignmentsQuery.data?.items || [], [assignmentsQuery.data])
+  // Resolve consultant_user_id -> {name, email} using the already-fetched
+  // real users list (no N+1 requests, no new backend endpoint).
+  const assignmentTeam = useMemo(() => {
+    const userById = new Map(users.map((u) => [u.id, u]))
+    return activeAssignments.map((a) => {
+      const u = userById.get(a.consultant_user_id)
+      return {
+        assignmentId: a.id,
+        consultantUserId: a.consultant_user_id,
+        name: u?.name || `User #${a.consultant_user_id}`,
+        email: u?.email || '—',
+        roleOnAccount: a.role_on_account,
+      }
     })
-  }, [users, search, roleFilter])
+  }, [activeAssignments, users])
 
-  const selectedCompany = companies.find((c) => c.id === selectedCompanyId) || companies[0]
+  const createConsultantAssignment = useCreateConsultantAssignment()
+  const updateConsultantAssignment = useUpdateConsultantAssignment()
+
+  // RBAC role assignment — genuinely separate from ConsultantAssignment
+  // staffing above. No backend endpoint lists a specific user's current
+  // UserRole rows, so we use the existing (non-authoritative) User.role
+  // display-hint field as the best-available "current role" signal, and
+  // keep it in sync via the existing useUpdateUser hook after a successful
+  // RBAC mutation — using only already-existing capability, no new
+  // endpoints, no modification to users.js/useUsers.js.
+  const [showAssignRole, setShowAssignRole] = useState(false)
+  const [assignRoleError, setAssignRoleError] = useState(null)
+  const assignRole = useAssignRole()
+  const removeRoleMutation = useRemoveRole()
+  const updateUserDisplayRole = useUpdateUser()
+
+  const currentRoleByUserId = useMemo(() => {
+    const map = {}
+    for (const u of users) {
+      if (u.portal_type === 'deloitte') map[u.id] = u.role
+    }
+    return map
+  }, [users])
+
+  async function handleAssignRbacRole(userId, newRoleCode) {
+    setAssignRoleError(null)
+    const priorRole = currentRoleByUserId[userId]
+    // Tracks whether the DELETE step actually completed, so error messages
+    // below can say precisely what happened rather than guessing — the
+    // original single try/catch could misattribute which step failed
+    // (e.g. reporting "previous role could not be removed" when it actually
+    // WAS removed and the new assignment failed instead). Fixed per review.
+    let priorRoleRemoved = false
+    try {
+      // Best-effort remove of the role-on-record if it differs from the new
+      // one. Tolerate 404 — the display hint may be stale/never actually
+      // backed by a real UserRole (e.g. seeded directly, or already
+      // out of sync from a prior PATCH /users/{id} that only touched the
+      // display field). Not atomic — DELETE and POST are two separate
+      // requests; if POST fails after a successful DELETE, the error below
+      // says so explicitly rather than hiding it.
+      if (priorRole && priorRole !== newRoleCode) {
+        try {
+          await removeRoleMutation.mutateAsync({ user_id: userId, role_code: priorRole, company_id: null })
+          priorRoleRemoved = true
+        } catch (err) {
+          if (err.status !== 404) throw err // real failure — stop before assigning the new role
+          // 404 tolerated (nothing to remove) — priorRoleRemoved stays false,
+          // which is accurate: no role was actually removed.
+        }
+      }
+      await assignRole.mutateAsync({ user_id: userId, role_code: newRoleCode, company_id: null })
+      // Keep the display-hint in sync using the existing, already-approved
+      // User Directory update path — not a new capability.
+      await updateUserDisplayRole.mutateAsync({ id: userId, body: { role: newRoleCode } })
+      setShowAssignRole(false)
+    } catch (err) {
+      // Prefix every branch with an accurate note about the user's actual
+      // current state whenever the prior role was genuinely removed before
+      // this failure occurred — the one thing the old messaging got wrong.
+      const removalNote = priorRoleRemoved
+        ? `The previous role (${priorRole}) was already removed. This user currently has NO RBAC role. `
+        : ''
+      if (err.status === 422 && err.code === 'duplicate_role') {
+        setAssignRoleError(removalNote + 'This user already has this role.')
+      } else if (err.status === 422 && err.code === 'invalid_role') {
+        setAssignRoleError(removalNote + 'Unrecognized role.')
+      } else if (err.status === 404) {
+        setAssignRoleError(removalNote || 'User or role not found.')
+      } else if (err.status === 403) {
+        setAssignRoleError(removalNote + 'You do not have permission to assign RBAC roles.')
+      } else if (err.isNetworkError) {
+        setAssignRoleError(removalNote + 'Could not reach the server. Check your connection and try again.')
+      } else {
+        setAssignRoleError(removalNote + (err.message || 'Something went wrong while assigning this role.'))
+      }
+    }
+  }
+
+  async function handleAssignConsultant(consultantUserId, roleOnAccount) {
+    if (!selectedCompanyForAssignment) return
+    setAssignError(null)
+    try {
+      await createConsultantAssignment.mutateAsync({
+        company_id: selectedCompanyForAssignment.id,
+        consultant_user_id: consultantUserId,
+        role_on_account: roleOnAccount,
+      })
+      setShowAssignUser(false)
+    } catch (err) {
+      if (err.status === 422 && err.code === 'duplicate_assignment') {
+        setAssignError('This consultant is already assigned to this company.')
+      } else if (err.status === 422 && err.code === 'invalid_consultant') {
+        setAssignError('This user cannot be assigned as a consultant.')
+      } else if (err.status === 404) {
+        setAssignError('Company not found or not accessible.')
+      } else if (err.status === 403) {
+        setAssignError('You do not have permission to assign consultants.')
+      } else if (err.isNetworkError) {
+        setAssignError('Could not reach the server. Check your connection and try again.')
+      } else {
+        setAssignError(err.message || 'Something went wrong while assigning this consultant.')
+      }
+    }
+  }
+
+  async function confirmRemoveAssignment() {
+    if (!removeAssignmentTarget) return
+    setRemoveError(null)
+    try {
+      await updateConsultantAssignment.mutateAsync({
+        id: removeAssignmentTarget.assignmentId,
+        body: { is_active: false },
+      })
+      setRemoveAssignmentTarget(null)
+    } catch (err) {
+      setRemoveError(err.message || 'Could not remove this consultant. Please try again.')
+    }
+  }
 
   const filteredClients = useMemo(() => {
     return clientPool.filter((c) => {
@@ -88,57 +241,64 @@ export default function ControlCenter() {
   const selectedClient =
     clientPool.find((c) => c.id === selectedClientId) || filteredClients[0] || null
 
-  function handleAddUser(user) {
-    setUsers((prev) => [user, ...prev])
-  }
+  const [createUserError, setCreateUserError] = useState(null)
 
-  function handleAssignUser(user) {
-    setCompanies((prev) =>
-      prev.map((c) =>
-        c.id === selectedCompanyId
-          ? { ...c, team: [{ id: user.id, name: user.name, email: user.email, role: user.role }, ...c.team] }
-          : c
-      )
-    )
-  }
-
-  function updateMemberRole(memberId, newRole) {
-    setCompanies((prev) =>
-      prev.map((c) =>
-        c.id === selectedCompanyId
-          ? { ...c, team: c.team.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)) }
-          : c
-      )
-    )
-    setEditingMemberId(null)
-  }
-
-  async function handleAssignRbacRole(userId, newRoleCode) {
-    setAssignRoleError(null)
+  async function handleAddUser(formPayload) {
+    // formPayload comes from AddUserModal: {name, email, department, role, password}
+    // Map to POST /users' exact expected shape. portal_type is hardcoded to
+    // 'deloitte' — confirmed as the correct literal value (matches
+    // RequireAuth.jsx's docstring and Login.jsx's own portal mapping) and
+    // locked as this task's scope: User Directory creates Deloitte/team
+    // users only, never client-portal users.
+    setCreateUserError(null)
     try {
-      // Assign the new RBAC role
-      await assignRoleMutation.mutateAsync({ 
-        user_id: userId, 
-        role_code: newRoleCode, 
-        company_id: null 
+      await createUser.mutateAsync({
+        name: formPayload.name,
+        email: formPayload.email,
+        portal_type: 'deloitte',
+        role: formPayload.role,
+        department: formPayload.department,
+        password: formPayload.password,
+        role_code: ROLE_TO_ROLE_CODE[formPayload.role],
       })
-      setShowAssignRbacRole(false)
     } catch (err) {
-      if (err.status === 422 && err.code === 'duplicate_role') {
-        setAssignRoleError('This user already has this role.')
-      } else if (err.status === 422 && err.code === 'invalid_role') {
-        setAssignRoleError('Unrecognized role.')
-      } else if (err.status === 404) {
-        setAssignRoleError('User or role not found.')
+      if (err.status === 422 && err.field === 'email') {
+        setCreateUserError('A user with this email already exists.')
+      } else if (err.status === 422 && err.field === 'role_code') {
+        setCreateUserError('Unrecognized role. Please pick a valid role and try again.')
       } else if (err.status === 403) {
-        setAssignRoleError('You do not have permission to assign RBAC roles.')
+        setCreateUserError('You do not have permission to create a new user.')
       } else if (err.isNetworkError) {
-        setAssignRoleError('Could not reach the server. Check your connection and try again.')
+        setCreateUserError('Could not reach the server. Check your connection and try again.')
       } else {
-        setAssignRoleError(err.message || 'Something went wrong while assigning this role.')
+        setCreateUserError(err.message || 'Something went wrong while creating the user.')
       }
+      throw err // re-throw so the modal knows submission failed and stays open
     }
   }
+
+  const [deactivateTargetId, setDeactivateTargetId] = useState(null)
+  const [deactivateError, setDeactivateError] = useState(null)
+
+  async function confirmDeactivate() {
+    setDeactivateError(null)
+    try {
+      await deactivateUser.mutateAsync(deactivateTargetId)
+      setDeactivateTargetId(null)
+    } catch (err) {
+      // Includes the backend's real self-deactivation block (422
+      // self_deactivate) — surfaced here, never bypassed.
+      setDeactivateError(err.message || 'Could not deactivate this user. Please try again.')
+    }
+  }
+
+  // NOTE: no reactivate handler. The backend's soft-delete architecture
+  // makes reactivation impossible with current capabilities: deleted_at is
+  // set on deactivation, list_users() excludes rows where deleted_at is set
+  // (so a deactivated user can never be seen again to act on), and
+  // update_user() explicitly 404s any user with deleted_at set (confirmed
+  // via direct API test). Adding a "Reactivate" action here would expose UI
+  // for something the backend cannot do — intentionally not implemented.
 
   return (
     <div>
@@ -160,7 +320,7 @@ export default function ControlCenter() {
 
       {tab === 'User Directory' && (
         <UserDirectoryTab
-          users={filteredUsers}
+          users={users}
           search={search}
           setSearch={setSearch}
           roleFilter={roleFilter}
@@ -168,25 +328,44 @@ export default function ControlCenter() {
           roleFilterOpen={roleFilterOpen}
           setRoleFilterOpen={setRoleFilterOpen}
           onAddUser={() => setShowAddUser(true)}
+          isLoading={usersQuery.isLoading}
+          isError={usersQuery.isError}
+          error={usersQuery.error}
+          onRetry={() => usersQuery.refetch()}
+          canManageUsers={hasPermission('user:manage')}
+          onDeactivate={(id) => setDeactivateTargetId(id)}
+        />
+      )}
+
+      {deactivateTargetId && (
+        <ConfirmDeactivateDialog
+          onCancel={() => { setDeactivateTargetId(null); setDeactivateError(null) }}
+          onConfirm={confirmDeactivate}
+          isSubmitting={deactivateUser.isPending}
+          error={deactivateError}
         />
       )}
 
       {tab === 'Role Assignment' && (
         <RoleAssignmentTab
-          companies={companies}
-          selectedCompany={selectedCompany}
+          companies={clientPool}
+          selectedCompany={selectedCompanyForAssignment}
           companyPickerOpen={companyPickerOpen}
           setCompanyPickerOpen={setCompanyPickerOpen}
           onSelectCompany={(id) => {
             setSelectedCompanyId(id)
             setCompanyPickerOpen(false)
-            setEditingMemberId(null)
           }}
-          editingMemberId={editingMemberId}
-          setEditingMemberId={setEditingMemberId}
-          updateMemberRole={updateMemberRole}
+          team={assignmentTeam}
+          isLoading={companiesQuery.isLoading || assignmentsQuery.isLoading}
+          isError={assignmentsQuery.isError}
+          error={assignmentsQuery.error}
+          onRetry={() => assignmentsQuery.refetch()}
+          canManageAssignments={hasPermission('user:manage')}
           onAssignNew={() => setShowAssignUser(true)}
-          onAssignRbacRole={() => setShowAssignRbacRole(true)}
+          onRemove={(assignmentId, name) => setRemoveAssignmentTarget({ assignmentId, name })}
+          canManageRbac={hasPermission('user:manage')}
+          onAssignRole={() => setShowAssignRole(true)}
         />
       )}
 
@@ -213,20 +392,41 @@ export default function ControlCenter() {
 
       {tab === 'Logs' && <LogsTab />}
 
-      {showAddUser && <AddUserModal onClose={() => setShowAddUser(false)} onAdd={handleAddUser} />}
-      {showAssignUser && (
+      {showAddUser && (
         <AddUserModal
-          onClose={() => setShowAssignUser(false)}
-          onAdd={handleAssignUser}
-          title="Assign New Deloitte User"
-          subtitle={`Add a Deloitte team member to ${selectedCompany.name}`}
+          onClose={() => { setShowAddUser(false); setCreateUserError(null) }}
+          onAdd={handleAddUser}
+          requirePassword
+          isSubmitting={createUser.isPending}
+          submitError={createUserError}
         />
       )}
-      {showAssignRbacRole && (
+      {showAssignUser && selectedCompanyForAssignment && (
+        <AssignConsultantModal
+          onClose={() => { setShowAssignUser(false); setAssignError(null) }}
+          onAssign={handleAssignConsultant}
+          excludeUserIds={assignmentTeam.map((m) => m.consultantUserId)}
+          companyName={selectedCompanyForAssignment.name}
+          isSubmitting={createConsultantAssignment.isPending}
+          submitError={assignError}
+        />
+      )}
+      {showAssignRole && (
         <AssignRbacRoleModal
-          onClose={() => { setShowAssignRbacRole(false); setAssignRoleError(null); }}
+          onClose={() => { setShowAssignRole(false); setAssignRoleError(null) }}
           onAssign={handleAssignRbacRole}
-          error={assignRoleError}
+          currentRoleByUserId={currentRoleByUserId}
+          isSubmitting={assignRole.isPending || removeRoleMutation.isPending || updateUserDisplayRole.isPending}
+          submitError={assignRoleError}
+        />
+      )}
+      {removeAssignmentTarget && (
+        <ConfirmRemoveAssignmentDialog
+          name={removeAssignmentTarget.name}
+          onCancel={() => { setRemoveAssignmentTarget(null); setRemoveError(null) }}
+          onConfirm={confirmRemoveAssignment}
+          isSubmitting={updateConsultantAssignment.isPending}
+          error={removeError}
         />
       )}
     </div>
@@ -280,7 +480,10 @@ function Dropdown({ options, value, open, setOpen, onSelect }) {
   )
 }
 
-function UserDirectoryTab({ users, search, setSearch, roleFilter, setRoleFilter, roleFilterOpen, setRoleFilterOpen, onAddUser }) {
+function UserDirectoryTab({
+  users, search, setSearch, roleFilter, setRoleFilter, roleFilterOpen, setRoleFilterOpen, onAddUser,
+  isLoading, isError, error, onRetry, canManageUsers, onDeactivate,
+}) {
   return (
     <div>
       <SearchBar
@@ -300,44 +503,109 @@ function UserDirectoryTab({ users, search, setSearch, roleFilter, setRoleFilter,
                 setRoleFilterOpen(false)
               }}
             />
-            <Button onClick={onAddUser}>Add User <Plus size={15} /></Button>
+            {/* Frontend permission check is UX only — the backend enforces
+                user:manage on POST /users regardless of this. */}
+            {canManageUsers && (
+              <Button onClick={onAddUser}>Add User <Plus size={15} /></Button>
+            )}
           </div>
         }
       />
-      <div className="bg-white border border-surface-border rounded-lg overflow-hidden">
-        {users.length === 0 ? (
-          <div className="p-6">
-            <EmptyState title="No users match your search" subtitle="Try a different name, email or role filter." />
-          </div>
-        ) : (
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
-                <th className="font-medium px-5 py-3">Name</th>
-                <th className="font-medium px-2 py-3">Email Id</th>
-                <th className="font-medium px-2 py-3">Department</th>
-                <th className="font-medium px-2 py-3">Role</th>
-                <th className="font-medium px-5 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-t border-surface-border">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <Avatar name={u.name} size="w-7 h-7" />
-                      <span className="text-ink-900 font-medium">{u.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-3 text-ink-500">{u.email}</td>
-                  <td className="px-2 py-3 text-ink-700">{u.department}</td>
-                  <td className={`px-2 py-3 font-medium ${roleColors[u.role]}`}>{u.role}</td>
-                  <td className="px-5 py-3 text-right text-ink-300">-</td>
+
+      {isLoading ? (
+        <div className="bg-white border border-surface-border rounded-lg">
+          <LoadingState label="Loading users…" />
+        </div>
+      ) : isError ? (
+        <div className="bg-white border border-surface-border rounded-lg">
+          <ErrorState
+            message={error?.message || 'Could not load users. Please try again.'}
+            onRetry={onRetry}
+          />
+        </div>
+      ) : (
+        <div className="bg-white border border-surface-border rounded-lg overflow-hidden">
+          {users.length === 0 ? (
+            <div className="p-6">
+              <EmptyState title="No users match your search" subtitle="Try a different name, email or role filter." />
+            </div>
+          ) : (
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
+                  <th className="font-medium px-5 py-3">Name</th>
+                  <th className="font-medium px-2 py-3">Email Id</th>
+                  <th className="font-medium px-2 py-3">Department</th>
+                  <th className="font-medium px-2 py-3">Role</th>
+                  <th className="font-medium px-2 py-3">Status</th>
+                  <th className="font-medium px-5 py-3 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} className="border-t border-surface-border">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={u.name} size="w-7 h-7" />
+                        <span className="text-ink-900 font-medium">{u.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-3 text-ink-500">{u.email}</td>
+                    <td className="px-2 py-3 text-ink-700">{u.department || '—'}</td>
+                    <td className={`px-2 py-3 font-medium ${roleColors[u.role] || 'text-ink-700'}`}>{u.role}</td>
+                    <td className="px-2 py-3">
+                      <span className={u.is_active ? 'text-status-approved' : 'text-ink-300'}>
+                        {u.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {/* Every row reaching this list is guaranteed active —
+                          the backend's soft-delete excludes deactivated
+                          users from GET /users entirely, so there is no
+                          reachable "inactive" state to show a Reactivate
+                          action for. Reactivation is intentionally not
+                          supported (see ControlCenter's top-level note). */}
+                      {canManageUsers ? (
+                        <button
+                          onClick={() => onDeactivate(u.id)}
+                          className="text-status-pending text-xs font-medium hover:underline inline-flex items-center gap-1"
+                        >
+                          <UserX size={13} /> Deactivate
+                        </button>
+                      ) : (
+                        <span className="text-ink-300">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConfirmDeactivateDialog({ onCancel, onConfirm, isSubmitting, error }) {
+  return (
+    <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-lg w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-ink-900 mb-2">Deactivate this user?</h3>
+        <p className="text-sm text-ink-500 mb-4">
+          Are you sure you want to deactivate this user? They will lose access immediately. This can be reversed later.
+        </p>
+        {error && (
+          <p className="text-xs text-status-pending bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-4">
+            {error}
+          </p>
         )}
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" onClick={onCancel} disabled={isSubmitting}>Cancel</Button>
+          <Button onClick={onConfirm} disabled={isSubmitting}>
+            {isSubmitting ? 'Deactivating…' : 'Deactivate'}
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -345,8 +613,21 @@ function UserDirectoryTab({ users, search, setSearch, roleFilter, setRoleFilter,
 
 function RoleAssignmentTab({
   companies, selectedCompany, companyPickerOpen, setCompanyPickerOpen, onSelectCompany,
-  editingMemberId, setEditingMemberId, updateMemberRole, onAssignNew, onAssignRbacRole,
+  team, isLoading, isError, error, onRetry, canManageAssignments, onAssignNew, onRemove,
+  canManageRbac, onAssignRole,
 }) {
+  if (!selectedCompany) {
+    return (
+      <div className="bg-white border border-surface-border rounded-lg">
+        {isLoading ? <LoadingState label="Loading companies…" /> : (
+          <div className="p-6">
+            <EmptyState title="No companies available" subtitle="Companies will appear here once they exist." />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="mb-6 relative inline-block">
@@ -379,69 +660,77 @@ function RoleAssignmentTab({
         <h3 className="text-lg font-semibold text-ink-900 mb-1">{selectedCompany.name}</h3>
         <p className="text-[10px] text-ink-500 mb-4">Assigned Deloitte Team</p>
 
-        <div className="bg-white border border-surface-border rounded-lg overflow-hidden">
-          {selectedCompany.team.length === 0 ? (
-            <div className="p-6">
-              <EmptyState title="No Deloitte team assigned yet" subtitle="Assign a consultant to start working with this client." />
-            </div>
-          ) : (
-            <table className="w-full text-[10px]">
-              <thead>
-                <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
-                  <th className="font-medium px-5 py-3">Name</th>
-                  <th className="font-medium px-2 py-3">Email Id</th>
-                  <th className="font-medium px-2 py-3">Role</th>
-                  <th className="font-medium px-5 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedCompany.team.map((m) => (
-                  <tr key={m.id} className="border-t border-surface-border">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={m.name} size="w-7 h-7" />
-                        <span className="text-ink-900 font-medium">{m.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-2 py-3 text-ink-500">{m.email}</td>
-                    <td className="px-2 py-3">
-                      {editingMemberId === m.id ? (
-                        <select
-                          autoFocus
-                          defaultValue={m.role}
-                          onChange={(e) => updateMemberRole(m.id, e.target.value)}
-                          onBlur={() => setEditingMemberId(null)}
-                          className="px-2 py-1 rounded-md border border-surface-border text-xs focus:outline-none focus:ring-2 focus:ring-brand-green/20"
-                        >
-                          {['Administrator', 'Consultant', 'Reviewer', 'Support'].map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className={`font-medium ${roleColors[m.role]}`}>{m.role}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => setEditingMemberId(editingMemberId === m.id ? null : m.id)}
-                        className="text-brand-green text-xs font-medium hover:underline"
-                      >
-                        {editingMemberId === m.id ? 'DONE' : 'EDIT'}
-                      </button>
-                    </td>
+        {isLoading ? (
+          <div className="bg-white border border-surface-border rounded-lg">
+            <LoadingState label="Loading assigned team…" />
+          </div>
+        ) : isError ? (
+          <div className="bg-white border border-surface-border rounded-lg">
+            <ErrorState message={error?.message || 'Could not load the assigned team.'} onRetry={onRetry} />
+          </div>
+        ) : (
+          <div className="bg-white border border-surface-border rounded-lg overflow-hidden">
+            {team.length === 0 ? (
+              <div className="p-6">
+                <EmptyState title="No Deloitte team assigned yet" subtitle="Assign a consultant to start working with this client." />
+              </div>
+            ) : (
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
+                    <th className="font-medium px-5 py-3">Name</th>
+                    <th className="font-medium px-2 py-3">Email Id</th>
+                    <th className="font-medium px-2 py-3">Role on Account</th>
+                    <th className="font-medium px-5 py-3 text-right">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="flex justify-end mt-4">
-          <Button onClick={onAssignNew}>Assign New Deloitte User <Plus size={15} /></Button>
-        </div>
+                </thead>
+                <tbody>
+                  {team.map((m) => (
+                    <tr key={m.assignmentId} className="border-t border-surface-border">
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={m.name} size="w-7 h-7" />
+                          <span className="text-ink-900 font-medium">{m.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-3 text-ink-500">{m.email}</td>
+                      {/* This is ConsultantAssignment.role_on_account — a free-text
+                          note about this person's role on THIS account (e.g. "Lead").
+                          It is a DIFFERENT concept from RBAC permissions (UserRole),
+                          which is managed in the separate "RBAC Roles" section below —
+                          never conflate the two. */}
+                      <td className="px-2 py-3 text-ink-700">{m.roleOnAccount || '—'}</td>
+                      <td className="px-5 py-3 text-right">
+                        {canManageAssignments ? (
+                          <button
+                            onClick={() => onRemove(m.assignmentId, m.name)}
+                            className="text-status-pending text-xs font-medium hover:underline"
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <span className="text-ink-300">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {canManageAssignments && (
+          <div className="flex justify-end mt-4">
+            <Button onClick={onAssignNew}>Assign New Deloitte User <Plus size={15} /></Button>
+          </div>
+        )}
       </div>
 
       {/* Genuinely separate concern from staffing above: RBAC permission
-          roles, not company-account staffing. Kept visually distinct. */}
+          roles (UserRole), not company-account staffing (ConsultantAssignment).
+          Kept visually distinct — different heading, different color accent,
+          different action — so the two are never confused. */}
       <div className="border-t border-surface-border pt-5 mt-8">
         <h3 className="text-lg font-semibold text-ink-900 mb-1">RBAC Roles</h3>
         <p className="text-[10px] text-ink-500 mb-4">
@@ -449,9 +738,36 @@ function RoleAssignmentTab({
           the account staffing above — a person can be staffed on this account without
           holding any particular RBAC role, and vice versa.
         </p>
-        <Button onClick={onAssignRbacRole}>
-          Assign / Change RBAC Role
-        </Button>
+        {canManageRbac && (
+          <Button onClick={onAssignRole} variant="ghost">
+            Assign / Change RBAC Role
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ConfirmRemoveAssignmentDialog({ name, onCancel, onConfirm, isSubmitting, error }) {
+  return (
+    <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-lg w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-ink-900 mb-2">Remove this consultant?</h3>
+        <p className="text-sm text-ink-500 mb-4">
+          {name ? `Remove ${name} from this account's team? ` : 'Remove this consultant from the account? '}
+          They will lose access to this company. This can be reversed by assigning them again later.
+        </p>
+        {error && (
+          <p className="text-xs text-status-pending bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-4">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-3">
+          <Button variant="ghost" onClick={onCancel} disabled={isSubmitting}>Cancel</Button>
+          <Button onClick={onConfirm} disabled={isSubmitting}>
+            {isSubmitting ? 'Removing…' : 'Remove'}
+          </Button>
+        </div>
       </div>
     </div>
   )

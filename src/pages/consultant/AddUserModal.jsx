@@ -5,10 +5,14 @@ import { roleOptions } from '../../data/mockData'
 
 const DEPARTMENTS = ['ESG Advisory', 'Frameworks', 'Client Success']
 
-export default function AddUserModal({ onClose, onAdd, title = 'Add User', subtitle = 'Add a new Deloitte user to the platform' }) {
+export default function AddUserModal({
+  onClose, onAdd, title = 'Add User', subtitle = 'Add a new Deloitte user to the platform',
+  requirePassword = false, isSubmitting = false, submitError = null,
+}) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [department, setDepartment] = useState('')
   const [role, setRole] = useState('Consultant')
   const [errors, setErrors] = useState({})
@@ -19,21 +23,39 @@ export default function AddUserModal({ onClose, onAdd, title = 'Add User', subti
     if (!lastName.trim()) e.lastName = true
     if (!email.trim() || !email.includes('@')) e.email = true
     if (!department) e.department = true
+    // Only User Directory's call site (requirePassword=true) requires this —
+    // Role Assignment's existing flow is unaffected since it never sets
+    // requirePassword, so this branch never runs for it.
+    if (requirePassword && !password.trim()) e.password = true
     return e
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     const e = validate()
     setErrors(e)
     if (Object.keys(e).length > 0) return
-    onAdd({
+    const payload = {
       id: `u-${Date.now()}`,
       name: `${firstName.trim()} ${lastName.trim()}`,
       email: email.trim(),
       department,
       role,
-    })
-    onClose()
+    }
+    if (requirePassword) {
+      payload.password = password
+    }
+    try {
+      // await on a plain synchronous function (Role Assignment's existing
+      // handleAssignUser) resolves immediately — this is backward-compatible,
+      // not a behavior change for that call site.
+      await onAdd(payload)
+      onClose()
+    } catch {
+      // The caller (ControlCenter) is responsible for setting its own
+      // submitError state, which re-renders this modal with the message.
+      // We deliberately do NOT close the modal on failure, so the admin
+      // doesn't lose their entered data.
+    }
   }
 
   return (
@@ -53,6 +75,11 @@ export default function AddUserModal({ onClose, onAdd, title = 'Add User', subti
         </div>
 
         <div className="p-6 space-y-5">
+          {submitError && (
+            <p className="text-xs text-status-pending bg-red-50 border border-red-100 rounded-md px-3 py-2">
+              {submitError}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <Field label="First Name" required>
               <Input
@@ -80,6 +107,18 @@ export default function AddUserModal({ onClose, onAdd, title = 'Add User', subti
               className={errors.email ? '!border-status-pending' : ''}
             />
           </Field>
+
+          {requirePassword && (
+            <Field label="Initial Password" required>
+              <Input
+                type="password"
+                placeholder="Set an initial password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={errors.password ? '!border-status-pending' : ''}
+              />
+            </Field>
+          )}
 
           <Field label="Department" required>
             <Select
@@ -127,8 +166,10 @@ export default function AddUserModal({ onClose, onAdd, title = 'Add User', subti
         </div>
 
         <div className="flex justify-end gap-3 p-6 border-t border-surface-border">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit}>{title === 'Add User' ? 'Add User' : 'Assign User'}</Button>
+          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? 'Adding…' : (title === 'Add User' ? 'Add User' : 'Assign User')}
+          </Button>
         </div>
       </div>
     </div>
