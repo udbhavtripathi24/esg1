@@ -1,5 +1,7 @@
 import ReviewCenterView from '../../components/ReviewCenterView.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
 
 export default function ReviewCenter() {
-  return <ReviewCenterView currentUserName="James Whitfield" reviewerName="Daniel Walsh" />
+  const { user } = useAuth()
+  return <ReviewCenterView currentUserName={user?.name || 'User'} reviewerName="Daniel Walsh" />
 }

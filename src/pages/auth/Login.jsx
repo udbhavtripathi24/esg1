@@ -2,61 +2,85 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Fingerprint } from 'lucide-react'
 import { Button, Field, Input } from '../../components/ui.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
 import deloitteLogo from '../../assets/deloitte-logo.svg'
 
-// ─── Credentials ─────────────────────────────────────────────────────────────
-// Consultant portal — Deloitte team
-const CONSULTANT_USERS = [
-  { email: 'james.whitfield@deloitte.com', password: 'Deloitte@2026', name: 'James Whitfield' },
-  { email: 'sarah.jacob@deloitte.com',     password: 'Deloitte@2026', name: 'Sarah Jacob' },
-]
-
-// Client portal — ABC Holdings team
-const CLIENT_USERS = [
-  { email: 'john.doe@abcholding.com', password: 'ABCHolding@2026', name: 'John Doe' },
-  { email: 'neha.sharma@abc.com',     password: 'ABCHolding@2026', name: 'Neha Sharma' },
-]
+// Portal selector copy only — this is UI/UX text, NOT an authentication
+// mechanism. The real portal_type comes from the backend's response after
+// a successful login; the selector below is reconciled against it, never
+// trusted on its own (see handleSubmit).
+const roleCopy = {
+  consultant: {
+    emailPlaceholder: 'you@deloitte.com',
+    dest: '/consultant/dashboard',
+    backendPortalType: 'deloitte',
+    label: 'Deloitte account',
+  },
+  client: {
+    emailPlaceholder: 'you@company.com',
+    dest: '/client/dashboard',
+    backendPortalType: 'client',
+    label: 'client account',
+  },
+}
 
 export default function Login() {
   const navigate = useNavigate()
-  const [role, setRole] = useState('consultant') // 'consultant' | 'client'
+  const { login, logout } = useAuth()
+  const [role, setRole] = useState('consultant') // 'consultant' | 'client' — selector only
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const roleCopy = {
-    consultant: {
-      emailPlaceholder: 'you@deloitte.com',
-      hint: 'james.whitfield@deloitte.com · Deloitte@2026',
-      dest: '/consultant/dashboard',
-    },
-    client: {
-      emailPlaceholder: 'you@company.com',
-      hint: 'john.doe@abcholding.com · ABCHolding@2026',
-      dest: '/client/dashboard',
-    },
-  }
-
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
+    if (isSubmitting) return // prevent duplicate submissions while a request is in flight
+
     const e2 = {}
     if (!email.trim() || !email.includes('@')) e2.email = 'Enter a valid email'
     if (!password.trim()) e2.password = 'Password is required'
-    if (Object.keys(e2).length > 0) { setErrors(e2); return }
-
-    // Validate against the correct user list for the selected portal
-    const users = role === 'consultant' ? CONSULTANT_USERS : CLIENT_USERS
-    const match = users.find(
-      (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password
-    )
-
-    if (!match) {
-      setErrors({ auth: 'Incorrect email or password. Please try again.' })
+    if (Object.keys(e2).length > 0) {
+      setErrors(e2)
       return
     }
 
     setErrors({})
-    navigate(roleCopy[role].dest)
+    setIsSubmitting(true)
+    try {
+      const authenticatedUser = await login(email.trim(), password)
+
+      // The selector is UX only — the backend's portal_type is what actually
+      // determines access. If they disagree, this account does not belong
+      // in the portal the person selected: log out immediately and show a
+      // clear message, rather than silently redirecting to the wrong portal
+      // or trusting the selector for authorization.
+      const expectedPortalType = roleCopy[role].backendPortalType
+      if (authenticatedUser.portal_type !== expectedPortalType) {
+        logout()
+        setErrors({
+          auth: 'This account does not belong to the selected portal. Please choose the correct option above.',
+        })
+        return
+      }
+
+      navigate(roleCopy[role].dest)
+    } catch (err) {
+      // ApiError from api/client.js / api/auth.js — never expose raw
+      // backend stack traces or unrelated internals, only the normalized
+      // message.
+      if (err.status === 401) {
+        setErrors({ auth: 'Incorrect email or password. Please try again.' })
+      } else if (err.status === 403) {
+        setErrors({ auth: err.message || 'This account is inactive. Contact your administrator.' })
+      } else if (err.isNetworkError) {
+        setErrors({ auth: 'Could not reach the server. Check your connection and try again.' })
+      } else {
+        setErrors({ auth: 'Something went wrong. Please try again.' })
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -157,6 +181,7 @@ export default function Login() {
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setErrors((er) => ({ ...er, email: null, auth: null })) }}
                 className={errors.email ? '!border-status-pending' : ''}
+                disabled={isSubmitting}
               />
               {errors.email && <p className="text-xs text-status-pending mt-1">{errors.email}</p>}
             </Field>
@@ -173,6 +198,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setErrors((er) => ({ ...er, password: null, auth: null })) }}
                 className={errors.password ? '!border-status-pending' : ''}
+                disabled={isSubmitting}
               />
               {errors.password && <p className="text-xs text-status-pending mt-1">{errors.password}</p>}
             </div>
@@ -182,7 +208,9 @@ export default function Login() {
               Remember me
             </label>
 
-            <Button type="submit" className="w-full" size="lg">Sign in</Button>
+            <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+              {isSubmitting ? 'Signing in…' : 'Sign in'}
+            </Button>
 
             <div className="flex items-center gap-3 text-xs text-ink-300">
               <div className="flex-1 h-px bg-surface-border" />
@@ -190,7 +218,7 @@ export default function Login() {
               <div className="flex-1 h-px bg-surface-border" />
             </div>
 
-            <Button type="button" variant="ghost" className="w-full" size="lg">
+            <Button type="button" variant="ghost" className="w-full" size="lg" disabled={isSubmitting}>
               Sign in with Microsoft SSO
             </Button>
           </form>

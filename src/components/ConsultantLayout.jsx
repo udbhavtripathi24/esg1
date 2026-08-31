@@ -2,7 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { LayoutDashboard, SlidersHorizontal, UploadCloud, ListChecks } from 'lucide-react'
 import Sidebar from './Sidebar.jsx'
 import Topbar from './Topbar.jsx'
-import { currentConsultant } from '../data/mockData'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const navItems = [
   { to: '/consultant/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -12,9 +12,11 @@ const navItems = [
 ]
 
 export default function ConsultantLayout() {
+  const { user } = useAuth()
+
   return (
     <div className="h-screen flex flex-col bg-surface-muted">
-      <Topbar user={currentConsultant} />
+      <Topbar user={user} />
       <div className="flex flex-1 min-h-0">
         <Sidebar items={navItems} />
         <main className="flex-1 overflow-y-auto">

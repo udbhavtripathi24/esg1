@@ -3,8 +3,13 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronDown, Plus, Check, Eye } from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
 import { Button, Avatar, EmptyState, Select } from '../../components/ui.jsx'
+import LoadingState from '../../components/LoadingState.jsx'
+import ErrorState from '../../components/ErrorState.jsx'
 import AddUserModal from './AddUserModal.jsx'
-import { useClientPool } from '../../context/ClientPoolContext.jsx'
+import AssignRbacRoleModal from './AssignRbacRoleModal.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
+import { useCompanies } from '../../hooks/useCompanies.js'
+import { useAssignRole } from '../../hooks/useAssignments.js'
 import { userDirectory, companies as companiesSeed, roleOptions, auditLogs, logFilters } from '../../data/mockData'
 
 const roleColors = {
@@ -19,7 +24,7 @@ const TABS = ['User Directory', 'Role Assignment', 'Client Pool', 'Logs']
 export default function ControlCenter() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { clientPool } = useClientPool()
+  const { hasPermission } = useAuth()
   const [tab, setTab] = useState(location.state?.tab || 'User Directory')
   const [showAddUser, setShowAddUser] = useState(false)
 
@@ -36,11 +41,24 @@ export default function ControlCenter() {
   const [showAssignUser, setShowAssignUser] = useState(false)
   const [editingMemberId, setEditingMemberId] = useState(null)
 
-  // Client Pool state
+  // RBAC role assignment state — genuinely separate from ConsultantAssignment staffing above
+  const [showAssignRbacRole, setShowAssignRbacRole] = useState(false)
+  const [assignRoleError, setAssignRoleError] = useState(null)
+  const assignRoleMutation = useAssignRole()
+
+  // Client Pool state — backed by real GET /companies.
+  // Backend has no `plan` query parameter and `search` only covers
+  // name/country (verified in app/api/routes/companies.py), so at the
+  // stated small scale we fetch one full page and refine client-side over
+  // that already tenant-scoped result — not tenant filtering, just UI-level
+  // search/plan refinement of data the backend already authorized.
   const [poolSearch, setPoolSearch] = useState('')
   const [planFilter, setPlanFilter] = useState('All plans')
   const [planFilterOpen, setPlanFilterOpen] = useState(false)
-  const [selectedClientId, setSelectedClientId] = useState(clientPool[0].id)
+  const [selectedClientId, setSelectedClientId] = useState(null)
+
+  const companiesQuery = useCompanies({ page: 1, page_size: 100, sort: 'name', order: 'asc' })
+  const clientPool = useMemo(() => companiesQuery.data?.items || [], [companiesQuery.data])
 
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
@@ -67,7 +85,8 @@ export default function ControlCenter() {
     })
   }, [poolSearch, planFilter, clientPool])
 
-  const selectedClient = clientPool.find((c) => c.id === selectedClientId) || filteredClients[0]
+  const selectedClient =
+    clientPool.find((c) => c.id === selectedClientId) || filteredClients[0] || null
 
   function handleAddUser(user) {
     setUsers((prev) => [user, ...prev])
@@ -92,6 +111,33 @@ export default function ControlCenter() {
       )
     )
     setEditingMemberId(null)
+  }
+
+  async function handleAssignRbacRole(userId, newRoleCode) {
+    setAssignRoleError(null)
+    try {
+      // Assign the new RBAC role
+      await assignRoleMutation.mutateAsync({ 
+        user_id: userId, 
+        role_code: newRoleCode, 
+        company_id: null 
+      })
+      setShowAssignRbacRole(false)
+    } catch (err) {
+      if (err.status === 422 && err.code === 'duplicate_role') {
+        setAssignRoleError('This user already has this role.')
+      } else if (err.status === 422 && err.code === 'invalid_role') {
+        setAssignRoleError('Unrecognized role.')
+      } else if (err.status === 404) {
+        setAssignRoleError('User or role not found.')
+      } else if (err.status === 403) {
+        setAssignRoleError('You do not have permission to assign RBAC roles.')
+      } else if (err.isNetworkError) {
+        setAssignRoleError('Could not reach the server. Check your connection and try again.')
+      } else {
+        setAssignRoleError(err.message || 'Something went wrong while assigning this role.')
+      }
+    }
   }
 
   return (
@@ -140,6 +186,7 @@ export default function ControlCenter() {
           setEditingMemberId={setEditingMemberId}
           updateMemberRole={updateMemberRole}
           onAssignNew={() => setShowAssignUser(true)}
+          onAssignRbacRole={() => setShowAssignRbacRole(true)}
         />
       )}
 
@@ -156,6 +203,11 @@ export default function ControlCenter() {
           planFilterOpen={planFilterOpen}
           setPlanFilterOpen={setPlanFilterOpen}
           onAddClient={() => navigate('/consultant/control-center/new-client')}
+          isLoading={companiesQuery.isLoading}
+          isError={companiesQuery.isError}
+          error={companiesQuery.error}
+          onRetry={() => companiesQuery.refetch()}
+          canManageCompanies={hasPermission('company:manage')}
         />
       )}
 
@@ -168,6 +220,13 @@ export default function ControlCenter() {
           onAdd={handleAssignUser}
           title="Assign New Deloitte User"
           subtitle={`Add a Deloitte team member to ${selectedCompany.name}`}
+        />
+      )}
+      {showAssignRbacRole && (
+        <AssignRbacRoleModal
+          onClose={() => { setShowAssignRbacRole(false); setAssignRoleError(null); }}
+          onAssign={handleAssignRbacRole}
+          error={assignRoleError}
         />
       )}
     </div>
@@ -286,7 +345,7 @@ function UserDirectoryTab({ users, search, setSearch, roleFilter, setRoleFilter,
 
 function RoleAssignmentTab({
   companies, selectedCompany, companyPickerOpen, setCompanyPickerOpen, onSelectCompany,
-  editingMemberId, setEditingMemberId, updateMemberRole, onAssignNew,
+  editingMemberId, setEditingMemberId, updateMemberRole, onAssignNew, onAssignRbacRole,
 }) {
   return (
     <div>
@@ -380,6 +439,20 @@ function RoleAssignmentTab({
           <Button onClick={onAssignNew}>Assign New Deloitte User <Plus size={15} /></Button>
         </div>
       </div>
+
+      {/* Genuinely separate concern from staffing above: RBAC permission
+          roles, not company-account staffing. Kept visually distinct. */}
+      <div className="border-t border-surface-border pt-5 mt-8">
+        <h3 className="text-lg font-semibold text-ink-900 mb-1">RBAC Roles</h3>
+        <p className="text-[10px] text-ink-500 mb-4">
+          Set a Deloitte user's real permission/authorization role. This is separate from
+          the account staffing above — a person can be staffed on this account without
+          holding any particular RBAC role, and vice versa.
+        </p>
+        <Button onClick={onAssignRbacRole}>
+          Assign / Change RBAC Role
+        </Button>
+      </div>
     </div>
   )
 }
@@ -387,13 +460,14 @@ function RoleAssignmentTab({
 function ClientPoolTab({
   clients, selectedClient, selectedClientId, setSelectedClientId,
   poolSearch, setPoolSearch, planFilter, setPlanFilter, planFilterOpen, setPlanFilterOpen, onAddClient,
+  isLoading, isError, error, onRetry, canManageCompanies,
 }) {
   const detail = selectedClient
 
   return (
     <div>
       <SearchBar
-        placeholder="Search organization, plans, industry........"
+        placeholder="Search organization, industry........"
         value={poolSearch}
         onChange={setPoolSearch}
         right={
@@ -408,139 +482,113 @@ function ClientPoolTab({
                 setPlanFilterOpen(false)
               }}
             />
-            <Button onClick={onAddClient}>Add New Client <Plus size={15} /></Button>
+            {/* Frontend permission check is UX only — the backend enforces
+                company:manage on POST /companies regardless of this. */}
+            {canManageCompanies && (
+              <Button onClick={onAddClient}>Add New Client <Plus size={15} /></Button>
+            )}
           </div>
         }
       />
-      <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-        <div className="bg-white border border-surface-border rounded-lg overflow-hidden overflow-x-auto">
-          {clients.length === 0 ? (
-            <div className="p-6">
-              <EmptyState title="No clients match your search" subtitle="Try a different name, industry or plan filter." />
-            </div>
-          ) : (
-            <table className="w-full text-[10px]">
-              <thead>
-                <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
-                  <th className="font-medium px-5 py-3">Name</th>
-                  <th className="font-medium px-2 py-3">Consultant</th>
-                  <th className="font-medium px-2 py-3">Plan</th>
-                  <th className="font-medium px-2 py-3">Reg. Status</th>
-                  <th className="font-medium px-2 py-3">Report Status</th>
-                  <th className="font-medium px-5 py-3">Last Activity</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clients.map((c) => (
-                  <tr
-                    key={c.id}
-                    onClick={() => setSelectedClientId(c.id)}
-                    className={`border-t border-surface-border cursor-pointer ${
-                      selectedClientId === c.id ? 'bg-surface-muted/60' : 'hover:bg-surface-muted/40'
-                    }`}
-                  >
-                    <td className="px-5 py-3 text-ink-900 font-medium">{c.name}</td>
-                    <td className="px-2 py-3 text-ink-700">{c.consultant}</td>
-                    <td className="px-2 py-3 text-ink-700">{c.plan}</td>
-                    <td className="px-2 py-3 text-ink-700">{c.regStatus}</td>
-                    <td className="px-2 py-3 text-ink-700">{c.reportStatus}</td>
-                    <td className="px-5 py-3 text-ink-500">{c.lastActivity}</td>
+
+      {isLoading ? (
+        <div className="bg-white border border-surface-border rounded-lg">
+          <LoadingState label="Loading clients…" />
+        </div>
+      ) : isError ? (
+        <div className="bg-white border border-surface-border rounded-lg">
+          <ErrorState
+            message={error?.message || 'Could not load clients. Please try again.'}
+            onRetry={onRetry}
+          />
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-[1fr_320px] gap-4">
+          <div className="bg-white border border-surface-border rounded-lg overflow-hidden overflow-x-auto">
+            {clients.length === 0 ? (
+              <div className="p-6">
+                <EmptyState title="No clients match your search" subtitle="Try a different name, industry or plan filter." />
+              </div>
+            ) : (
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
+                    <th className="font-medium px-5 py-3">Name</th>
+                    <th className="font-medium px-2 py-3">Industry</th>
+                    <th className="font-medium px-2 py-3">Plan</th>
+                    <th className="font-medium px-2 py-3">Reg. Status</th>
+                    <th className="font-medium px-5 py-3">Country</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {clients.map((c) => (
+                    <tr
+                      key={c.id}
+                      onClick={() => setSelectedClientId(c.id)}
+                      className={`border-t border-surface-border cursor-pointer ${
+                        selectedClientId === c.id ? 'bg-surface-muted/60' : 'hover:bg-surface-muted/40'
+                      }`}
+                    >
+                      <td className="px-5 py-3 text-ink-900 font-medium">{c.name}</td>
+                      <td className="px-2 py-3 text-ink-700">{c.industry || '—'}</td>
+                      <td className="px-2 py-3 text-ink-700">{c.plan}</td>
+                      <td className="px-2 py-3 text-ink-700">{c.status}</td>
+                      <td className="px-5 py-3 text-ink-500">{c.country || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {detail && (
+            <div className="bg-white border border-surface-border rounded-lg p-5 h-fit">
+              <h4 className="font-semibold text-ink-900">{detail.name}</h4>
+              <p className="text-xs text-ink-500 mb-4">{detail.country || '—'}</p>
+
+              <p className="text-xs text-ink-500 font-medium mb-2">Company Information</p>
+              <div className="grid grid-cols-2 gap-3 text-[10px] mb-4">
+                <div>
+                  <div className="text-xs text-ink-300">Industry</div>
+                  <div className="text-ink-900">{detail.industry || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-ink-300">Sector</div>
+                  <div className="text-ink-900">{detail.sector || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-ink-300">Structure</div>
+                  <div className="text-ink-900">{detail.structure || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-ink-300">Registration Date</div>
+                  <div className="text-ink-900">{detail.registration_date || '—'}</div>
+                </div>
+              </div>
+
+              {/* The fields below are NOT part of the Company backend model
+                  (confirmed in app/models/company.py — subscription, contact
+                  person, frameworks, and progress% are explicitly deferred).
+                  Showing an honest "not available yet" state rather than the
+                  old mock values, per the approved Phase 2 scope. */}
+              <p className="text-xs text-ink-500 font-medium mb-2">Primary Contact</p>
+              <p className="text-xs text-ink-300 mb-4">Not available yet — contact details are not yet part of the client record.</p>
+
+              <p className="text-xs text-ink-500 font-medium mb-2">Subscription details</p>
+              <p className="text-xs text-ink-300 mb-4">Not available yet — subscription tracking is coming in a later phase.</p>
+
+              <p className="text-xs text-ink-500 font-medium mb-2">Assigned Consultants</p>
+              <p className="text-xs text-ink-300 mb-4">Not available yet — consultant assignment details are coming in a later phase.</p>
+
+              <p className="text-xs text-ink-500 font-medium mb-2">Reporting Frameworks</p>
+              <p className="text-xs text-ink-300 mb-4">Not available yet — reporting frameworks are coming in a later phase.</p>
+
+              <p className="text-xs text-ink-500 font-medium mb-2">Reporting Progress</p>
+              <p className="text-xs text-ink-300">Not available yet — reporting progress is coming in a later phase.</p>
+            </div>
           )}
         </div>
-
-        {detail && (
-          <div className="bg-white border border-surface-border rounded-lg p-5 h-fit">
-            <h4 className="font-semibold text-ink-900">{detail.name}</h4>
-            <p className="text-xs text-ink-500 mb-4">{detail.location}</p>
-
-            <p className="text-xs text-ink-500 font-medium mb-2">Company Information</p>
-            <div className="grid grid-cols-2 gap-3 text-[10px] mb-4">
-              <div>
-                <div className="text-xs text-ink-300">Industry</div>
-                <div className="text-ink-900">{detail.industry}</div>
-              </div>
-              <div>
-                <div className="text-xs text-ink-300">Employees</div>
-                <div className="text-ink-900">{detail.employees}</div>
-              </div>
-              <div>
-                <div className="text-xs text-ink-300">Country</div>
-                <div className="text-ink-900">{detail.country}</div>
-              </div>
-              <div>
-                <div className="text-xs text-ink-300">Last Activity</div>
-                <div className="text-ink-900">{detail.lastActivity}</div>
-              </div>
-            </div>
-
-            <p className="text-xs text-ink-500 font-medium mb-2">Primary Contact</p>
-            <div className="text-[10px] mb-1 text-ink-900 font-medium">{detail.contact.name}</div>
-            <div className="text-xs text-ink-500 mb-3">{detail.contact.title}</div>
-            <div className="grid grid-cols-2 gap-3 text-[10px] mb-4">
-              <div>
-                <div className="text-xs text-ink-300">Phone</div>
-                <div className="text-ink-900">{detail.contact.phone}</div>
-              </div>
-              <div>
-                <div className="text-xs text-ink-300">Email</div>
-                <div className="text-ink-900 truncate">{detail.contact.email}</div>
-              </div>
-            </div>
-
-            <p className="text-xs text-ink-500 font-medium mb-2">Subscription details</p>
-            <div className="flex gap-2 mb-4 flex-wrap">
-              <span className="px-2.5 py-1 rounded-md border border-purple-200 bg-purple-50 text-purple-600 text-xs font-medium">
-                {detail.subscription.plan}
-              </span>
-              <span className="px-2.5 py-1 rounded-md border border-surface-border text-xs text-ink-500">
-                {detail.subscription.start}
-              </span>
-              <span className="px-2.5 py-1 rounded-md border border-surface-border text-xs text-ink-500">
-                {detail.subscription.end}
-              </span>
-            </div>
-
-            <p className="text-xs text-ink-500 font-medium mb-2">Assigned Consultants</p>
-            {detail.consultants.length === 0 ? (
-              <p className="text-xs text-ink-300 mb-4">Not yet assigned</p>
-            ) : (
-              <div className="space-y-2 mb-4">
-                {detail.consultants.map((c) => (
-                  <div key={c} className="flex items-center gap-2">
-                    <Avatar name={c} size="w-6 h-6" />
-                    <span className="text-[10px] text-ink-900">{c}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <p className="text-xs text-ink-500 font-medium mb-2">Reporting Frameworks</p>
-            {detail.frameworks.length === 0 ? (
-              <p className="text-xs text-ink-300 mb-4">None selected yet</p>
-            ) : (
-              <div className="flex flex-wrap gap-2 mb-4">
-                {detail.frameworks.map((f) => (
-                  <span key={f} className="px-2.5 py-1 rounded-md border border-brand-green/30 text-brand-greenDark text-xs font-medium">
-                    {f}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <p className="text-xs text-ink-500 font-medium mb-2">Reporting Progress</p>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-ink-100 rounded-full overflow-hidden">
-                <div className="h-1.5 bg-purple-500 rounded-full" style={{ width: `${detail.progress}%` }} />
-              </div>
-              <span className="text-xs font-medium text-purple-600">{detail.progress}%</span>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   )
 }

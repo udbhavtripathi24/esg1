@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, ChevronRight, ChevronLeft, Building2, MapPin, UserSquare2, Network, ClipboardCheck, Plus, X, ImageUp } from 'lucide-react'
+import { Check, ChevronRight, ChevronLeft, Building2, MapPin, UserSquare2, Network, ClipboardCheck, Plus, X, ImageUp, Info } from 'lucide-react'
 import { Button, Field, Input, Select } from '../../components/ui.jsx'
-import { useClientPool } from '../../context/ClientPoolContext.jsx'
+import { useCreateCompany } from '../../hooks/useCompanies.js'
 import { industries } from '../../data/mockData'
 
 const STEPS = [
@@ -23,10 +23,11 @@ const emptyForm = {
 
 export default function NewClientRegistration() {
   const navigate = useNavigate()
-  const { addClient } = useClientPool()
+  const createCompany = useCreateCompany()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(emptyForm)
   const [errors, setErrors] = useState({})
+  const [submitError, setSubmitError] = useState(null)
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -63,35 +64,40 @@ export default function NewClientRegistration() {
     if (step > 0) setStep(step - 1)
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!validateStep()) return
 
-    const newClient = {
-      id: `cl-${Date.now()}`,
+    // Only these fields exist on the backend's CompanyCreate schema
+    // (verified in app/models/company.py). Everything else the form
+    // collects — legal entity name, website, parent company, CIN, address
+    // fields, contact person, org-structure entities — is NOT sent, because
+    // there is nowhere on the backend for it to be stored yet. This is a
+    // deliberate, documented limitation (see the notice shown in the
+    // Declaration step), not a bug.
+    const payload = {
       name: form.companyName,
-      consultant: 'James Whitfield',
-      plan: 'Basic',
-      regStatus: 'Pending',
-      reportStatus: '-',
-      lastActivity: 'Just now',
-      location: [form.city, form.state].filter(Boolean).join(', ') || form.country,
-      industry: form.industry,
-      employees: '-',
-      country: form.country,
-      contact: {
-        name: form.contactName,
-        title: form.designation,
-        phone: form.phoneNumber,
-        email: form.officialEmail,
-      },
-      subscription: { plan: 'Basic', start: '-', end: '-' },
-      consultants: ['James Whitfield'],
-      frameworks: [],
-      progress: 0,
+      industry: form.industry || undefined,
+      sector: form.sector || undefined,
+      structure: form.companyStructure || undefined,
+      country: form.country || undefined,
     }
 
-    addClient(newClient)
-    navigate('/consultant/control-center', { state: { tab: 'Client Pool' } })
+    setSubmitError(null)
+    try {
+      await createCompany.mutateAsync(payload)
+      navigate('/consultant/control-center', { state: { tab: 'Client Pool' } })
+    } catch (err) {
+      if (err.status === 422 && err.field) {
+        setErrors((e) => ({ ...e, [err.field]: true }))
+        setSubmitError(err.message)
+      } else if (err.status === 403) {
+        setSubmitError('You do not have permission to create a new client organization.')
+      } else if (err.isNetworkError) {
+        setSubmitError('Could not reach the server. Check your connection and try again.')
+      } else {
+        setSubmitError(err.message || 'Something went wrong while creating the client. Please try again.')
+      }
+    }
   }
 
   return (
@@ -134,16 +140,24 @@ export default function NewClientRegistration() {
         {step === 3 && <DeclarationStep form={form} update={update} errors={errors} />}
       </div>
 
+      {submitError && (
+        <p className="mt-4 text-xs text-status-pending bg-red-50 border border-red-100 rounded-md px-3 py-2">
+          {submitError}
+        </p>
+      )}
+
       <div className="flex justify-between mt-6">
-        <Button variant="ghost" onClick={goBack} disabled={step === 0}>
+        <Button variant="ghost" onClick={goBack} disabled={step === 0 || createCompany.isPending}>
           <ChevronLeft size={15} /> Back
         </Button>
         <div className="flex gap-3">
-          <Button variant="ghost" onClick={() => navigate('/consultant/control-center')}>Cancel</Button>
+          <Button variant="ghost" onClick={() => navigate('/consultant/control-center')} disabled={createCompany.isPending}>Cancel</Button>
           {step < STEPS.length - 1 ? (
             <Button onClick={goNext}>Next <ChevronRight size={15} /></Button>
           ) : (
-            <Button onClick={handleSubmit}>Submit Registration</Button>
+            <Button onClick={handleSubmit} disabled={createCompany.isPending}>
+              {createCompany.isPending ? 'Submitting…' : 'Submit Registration'}
+            </Button>
           )}
         </div>
       </div>
@@ -327,6 +341,16 @@ function DeclarationStep({ form, update, errors }) {
     <div>
       <SectionHeader icon={ClipboardCheck} title="Declaration" subtitle="Accuracy confirmation before submission" />
       <div className="p-6">
+        <div className="flex items-start gap-2.5 border border-blue-100 bg-blue-50 rounded-lg p-3 mb-4">
+          <Info size={15} className="text-blue-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-900 leading-relaxed">
+            At this stage, only Company Name, Industry, Sector, Company Structure and Country are
+            saved to the client record. Legal entity name, website, parent company, CIN, address
+            details, primary contact information, and organization structure are captured here for
+            your reference but are not yet persisted — support for these is coming in a later phase.
+          </p>
+        </div>
+
         <div className="border border-surface-border rounded-lg p-4 mb-4 bg-surface-muted/40">
           <p className="text-sm text-ink-700 leading-relaxed">
             I, on behalf of the organisation, hereby declare that the information provided in this submission is accurate,
