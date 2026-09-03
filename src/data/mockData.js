@@ -18,37 +18,6 @@ export const currentClientUser = {
   initials: 'JD',
 }
 
-export const kpiSummary = [
-  { label: 'Total Clients', value: '247', icon: 'building', tint: 'green' },
-  { label: 'Enterprise Clients', value: '64', icon: 'shield', tint: 'purple' },
-  { label: 'Professional Clients', value: '98', icon: 'briefcase', tint: 'blue' },
-  { label: 'Basic Clients', value: '85', icon: 'users', tint: 'gray' },
-  { label: 'Total Revenue', value: '$4.2M', icon: 'wallet', tint: 'amber' },
-]
-
-export const registrationQueue = [
-  { company: 'ABC Holdings', date: '12-05-2026', plan: 'Enterprise', status: 'Approved', consultant: 'James Whitfield' },
-  { company: 'QWC Holdings', date: '12-05-2026', plan: 'Basic', status: 'Pending', consultant: '-' },
-  { company: 'WHF Holdings', date: '12-05-2026', plan: 'Professional', status: 'Under Review', consultant: '-' },
-  { company: 'QRT Holdings', date: '12-05-2026', plan: 'Basic', status: 'Under Review', consultant: 'John Doe' },
-  { company: 'CVBV Holdings', date: '12-05-2026', plan: 'Basic', status: 'Pending', consultant: '-' },
-  { company: 'ACHJ Holdings', date: '12-05-2026', plan: 'Basic', status: 'Pending', consultant: '-' },
-  { company: 'Xyz Holdings', date: '12-05-2026', plan: 'Basic', status: 'Pending', consultant: '-' },
-]
-
-export const subscriptionDistribution = [
-  { label: 'Professional Clients', value: 98, pct: 40, color: '#2563EB' },
-  { label: 'Basic Clients', value: 85, pct: 34, color: '#9CA3AF' },
-  { label: 'Enterprise Clients', value: 64, pct: 26, color: '#8B5CF6' },
-]
-
-export const consultantWorkload = [
-  { name: 'James Whitfield', role: 'Senior ESG Consultant', clients: 8, projects: 12, pct: 89 },
-  { name: 'John Doe', role: 'Junior ESG Consultant', clients: 10, projects: 10, pct: 55 },
-  { name: 'Lenart Karl', role: 'Senior ESG Consultant', clients: 5, projects: 7, pct: 35 },
-  { name: 'James Rodriguez', role: 'Senior ESG Consultant', clients: 18, projects: 7, pct: 89 },
-]
-
 export const userDirectory = [
   { id: 'u1', name: 'John Doe', email: 'abc@deloitte.com', department: 'ESG Advisory', role: 'Administrator' },
   { id: 'u2', name: 'Sarah Jacob', email: 'abc@deloitte.com', department: 'Frameworks', role: 'Consultant' },
@@ -98,36 +67,6 @@ export const datasets = [
   { id: 'ds3', name: 'Q2 Renewable Energy Dataset', framework: 'SASB', domain: 'Emissions', period: 'Q2 2026', date: 'Jul 3, 2026', uploadedBy: 'Daniel Walsh', status: 'Approved', docs: 1, company: 'Meridian Energy Corp', assignedReviewer: 'Sarah Chen' },
   { id: 'ds4', name: 'Q2 Renewable Energy Dataset', framework: 'GRI', domain: 'Waste', period: 'Q2 2026', date: 'Jul 3, 2026', uploadedBy: 'Daniel Walsh', status: 'Approved', docs: 4, company: 'Meridian Energy Corp', assignedReviewer: 'Sarah Chen' },
   { id: 'ds5', name: 'Q2 Renewable Energy Dataset', framework: 'BRSR', domain: 'Social', period: 'Q2 2026', date: 'Jul 3, 2026', uploadedBy: 'Daniel Walsh', status: 'Approved', docs: 2, company: 'Meridian Energy Corp', assignedReviewer: 'Sarah Chen' },
-]
-
-export const clientKpiOverview = [
-  { label: 'Energy Consumption', value: '127,420', unit: 'MWh', delta: '8.3%', trend: 'up', icon: 'zap' },
-  { label: 'Water Withdrawal', value: '2,241', unit: 'ML', delta: '8.3%', trend: 'up', icon: 'droplet' },
-  { label: 'Carbon Emissions', value: '7.4', unit: 'ktCO2e', delta: '8.3%', trend: 'up', icon: 'cloud' },
-  { label: 'Water Recycled', value: '78', unit: '%', delta: '8.3%', trend: 'up', icon: 'recycle' },
-  { label: 'Data collection', value: '82', unit: '%', delta: '8.3%', trend: 'up', icon: 'database' },
-]
-
-export const frameworkStatus = [
-  { code: 'AWS', name: 'Alliance for Water Stewardship', stage: 'Data collection', pct: 82, color: '#8B5CF6', dueDate: 'Aug 15, 2025', owner: 'Sarah Chen', openIssues: 2 },
-  { code: 'SASB', name: 'Sustainability Accounting Standards Board', stage: 'Data review', pct: 63, color: '#3B82F6', dueDate: 'Aug 22, 2025', owner: 'Sarah Chen', openIssues: 0 },
-  { code: 'BRSR', name: 'Business Responsibility & Sustainability Report', stage: 'Data collection', pct: 82, color: '#DC2626', dueDate: 'Sep 1, 2025', owner: 'Sarah Chen', openIssues: 0 },
-  { code: 'GRI', name: 'Global Reporting Initiative', stage: 'Data collection', pct: 82, color: '#22C55E', dueDate: 'Sep 10, 2025', owner: 'Sarah Chen', openIssues: 0 },
-]
-
-export const myTasks = [
-  { title: 'Upload Q2 Energy Dataset', desc: 'Site A, B and C energy meter readings', priority: 'High', status: 'Pending', updated: '03/06/26' },
-  { title: 'Upload Q2 Energy Dataset', desc: 'Site A, B and C energy meter readings', priority: 'High', status: 'Pending', updated: '03/06/26' },
-  { title: 'Upload Q2 Energy Dataset', desc: 'Site A, B and C energy meter readings', priority: 'High', status: 'Pending', updated: '03/06/26' },
-  { title: 'Upload Q2 Energy Dataset', desc: 'Site A, B and C energy meter readings', priority: 'High', status: 'Pending', updated: '03/06/26' },
-]
-
-export const reportingCalendar = [
-  { date: '12', month: 'Jun', label: 'Q2 Data Submission Deadline' },
-  { date: '12', month: 'Jun', label: 'Consultant Check-in — Sarah Chen' },
-  { date: '12', month: 'Jun', label: 'SASB Quarterly Submission' },
-  { date: '12', month: 'Jun', label: 'Q2 Data Submission Deadline' },
-  { date: '12', month: 'Jun', label: 'Q2 Data Submission Deadline' },
 ]
 
 export const assuranceStats = [
@@ -230,65 +169,6 @@ export const renewableEnergyAdoption = {
     { org: 'Peer D — bgh holdings', score: 80, rank: '—', status: 'Average' },
   ],
 }
-export const analyticsFilters = {
-  years: ['2024', '2023', '2022', '2021', '2020'],
-  quarters: ['All', 'Q1', 'Q2', 'Q3', 'Q4'],
-  businessUnits: ['All', 'Manufacturing', 'Supply Chain', 'Corporate', 'Energy', 'Logistics'],
-  regions: ['All', 'North America', 'Europe', 'Asia Pacific', 'Latin America', 'Africa'],
-}
-
-export const benchmarkingData = {
-  overall: { score: 78.6, goal: 85, delta: '+7.06%' },
-  environmental: { score: 82.1, goal: 85, delta: '+3.41%' },
-  social: { score: 73.4, goal: 80, delta: '+6.6%' },
-  governance: { score: 80.3, goal: 85, delta: '+4.7%' },
-  totalEmissions: { value: '45.1K', unit: 'ktCO2e', delta: '-6.3%', vsLabel: 'vs FY 48.1K' },
-  emissionsByScope: [
-    { year: 2020, scope1: 30.3, scope2: 22, scope3: 12 },
-    { year: 2021, scope1: 28.7, scope2: 20, scope3: 10 },
-    { year: 2022, scope1: 24.6, scope2: 19, scope3: 9 },
-    { year: 2023, scope1: 22.1, scope2: 17, scope3: 9 },
-    { year: 2024, scope1: 21.1, scope2: 16, scope3: 8 },
-  ],
-  scoreTrend: {
-    years: [2020, 2021, 2022, 2023, 2024],
-    series: [
-      { label: 'Overall ESG Score', color: '#64BC44', values: [70, 74, 77, 76, 78.6] },
-      { label: 'Environmental', color: '#22C55E', values: [75, 79, 83, 80, 82.1] },
-      { label: 'Social', color: '#93C5FD', values: [65, 68, 71, 70, 73.4] },
-      { label: 'Governance', color: '#1E3A8A', values: [72, 75, 79, 78, 80.3] },
-    ],
-  },
-  scoreByBusinessUnit: [
-    { unit: 'Manufacturing', value: 85.2, color: '#1B5E3A' },
-    { unit: 'Supply Chain', value: 79.1, color: '#4B9B5F' },
-    { unit: 'Corporate', value: 76.4, color: '#3F8F82' },
-    { unit: 'Energy', value: 72.8, color: '#3B6FA0' },
-    { unit: 'Logistics', value: 70.2, color: '#1E3A5F' },
-  ],
-  energyBySource: [
-    { label: 'Electricity', pct: 52.4, color: '#3D9B4F' },
-    { label: 'Natural Gas', pct: 21.7, color: '#1E3A5F' },
-    { label: 'Renewables', pct: 15.8, color: '#7EB6E8' },
-    { label: 'Fuel Oil', pct: 6.1, color: '#C4C4C4' },
-    { label: 'Others', pct: 4.0, color: '#A8D5A2' },
-  ],
-  goals: [
-    { goal: 'Reduce GHG Emissions (Scope 1 & 2)', target: '-15%', progress: 70, status: 'On Track' },
-    { goal: 'Increase Renewable Energy Use', target: '40%', progress: 60, status: 'On Track' },
-    { goal: 'Reduce Water Withdrawal', target: '-10%', progress: 35, status: 'At Risk' },
-    { goal: 'Improve Employee Diversity', target: '35%', progress: 40, status: 'At Risk' },
-    { goal: 'Zero Lost Time Injuries', target: '0', progress: 95, status: 'On Track' },
-  ],
-  ghgByRegion: [
-    { region: 'North America', value: 15.2 },
-    { region: 'Europe', value: 12.4 },
-    { region: 'Asia Pacific', value: 10.8 },
-    { region: 'Latin America', value: 5.1 },
-    { region: 'Africa', value: 2.9 },
-  ],
-}
-
 export const reportingFilters = {
   years: ['2026', '2025', '2024'],
   periods: ['Q1 2026', 'Q2 2026', 'Q3 2026', 'Q4 2026'],
@@ -631,11 +511,3 @@ export const statusTint = {
   Published: 'bg-status-approved/10 text-status-approved',
   'Not Published': 'bg-status-pending/10 text-status-pending',
 }
-
-export const notifications = [
-  { id: 'n1', type: 'review', icon: 'check-circle', title: 'Dataset Approved', message: 'Your Q2 Energy Dataset was approved by Sarah Chen.', time: '2 hours ago', read: false },
-  { id: 'n2', type: 'action', icon: 'alert-circle', title: 'Changes Requested', message: 'Site C discrepancy flagged on your GRI Sustainability Report.', time: '5 hours ago', read: false },
-  { id: 'n3', type: 'info', icon: 'file-text', title: 'Report Generated', message: 'AWS Sustainability Report — Q2 2026 is ready to download.', time: 'Yesterday', read: true },
-  { id: 'n4', type: 'system', icon: 'settings', title: 'New Connection Added', message: 'Workday HCM was successfully connected under HR.', time: '2 days ago', read: true },
-  { id: 'n5', type: 'review', icon: 'trending-up', title: 'Benchmark Updated', message: 'Your industry ranking improved to Top 20%.', time: '3 days ago', read: true },
-]

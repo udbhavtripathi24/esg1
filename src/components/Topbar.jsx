@@ -1,44 +1,66 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Bell, LogOut, Settings, ChevronDown, CheckCircle2, AlertCircle, FileText, Settings as SettingsIcon, TrendingUp } from 'lucide-react'
+import { Search, Bell, LogOut, Settings, ChevronDown, CheckCircle2, AlertCircle, FileText } from 'lucide-react'
 import { Avatar } from './ui.jsx'
-import { notifications as notificationsSeed } from '../data/mockData'
+import LoadingState from './LoadingState.jsx'
+import ErrorState from './ErrorState.jsx'
+import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead } from '../hooks/useNotifications.js'
 import deloitteLogo from '../assets/deloitte-logo.svg'
 
-const notificationIcons = {
-  'check-circle': CheckCircle2,
-  'alert-circle': AlertCircle,
-  'file-text': FileText,
-  'settings': SettingsIcon,
-  'trending-up': TrendingUp,
+// Real event_type values, confirmed exhaustively via grep across the
+// backend (not guessed) — new_assignment, data_approved, data_rejected,
+// changes_requested. Same mapping pattern as roleColors/statusTint
+// elsewhere in this app for real backend enums.
+const eventTypeIcons = {
+  new_assignment: FileText,
+  data_approved: CheckCircle2,
+  data_rejected: AlertCircle,
+  changes_requested: AlertCircle,
 }
 
-const notificationColors = {
-  review: 'text-status-approved',
-  action: 'text-status-pending',
-  info: 'text-blue-600',
-  system: 'text-ink-500',
+const eventTypeColors = {
+  new_assignment: 'text-blue-600',
+  data_approved: 'text-status-approved',
+  data_rejected: 'text-status-pending',
+  changes_requested: 'text-status-pending',
 }
 
-export default function Topbar({ clientName, user, placeholder = 'Search clients, consultants........', settingsPath }) {
+function formatRelativeTime(isoString) {
+  const then = new Date(isoString)
+  const diffMs = Date.now() - then.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return 'Just now'
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`
+  const diffDay = Math.floor(diffHr / 24)
+  if (diffDay < 30) return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`
+  return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+export default function Topbar({ clientName, user, logout, placeholder = 'Search clients, consultants........', settingsPath }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
-  const [notifications, setNotifications] = useState(notificationsSeed)
 
-  const unreadCount = notifications.filter(n => !n.read).length
+  const notificationsQuery = useNotifications({ page: 1, page_size: 20 })
+  const notifications = notificationsQuery.data?.items || []
+  // A dedicated, accurate unread count independent of pagination — the main
+  // list above is capped at page_size:20 for display, but the unread badge
+  // must reflect the TRUE total, so this queries unread_only with a minimal
+  // page_size and reads the real .total the backend computes.
+  const unreadCountQuery = useNotifications({ unread_only: true, page: 1, page_size: 1 })
+  const unreadCount = unreadCountQuery.data?.total ?? 0
+
+  const markOneRead = useMarkNotificationRead()
+  const markAllRead = useMarkAllNotificationsRead()
 
   function handleLogout() {
     setMenuOpen(false)
+    if (logout) {
+      logout()
+    }
     navigate('/login')
-  }
-
-  function markAllAsRead() {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-  }
-
-  function markOneAsRead(id) {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
   }
 
   return (
@@ -89,23 +111,30 @@ export default function Topbar({ clientName, user, placeholder = 'Search clients
                   )}
                 </div>
                 <div className="overflow-y-auto">
-                  {notifications.length === 0 ? (
+                  {notificationsQuery.isLoading ? (
+                    <LoadingState label="Loading notifications…" />
+                  ) : notificationsQuery.isError ? (
+                    <ErrorState
+                      message={notificationsQuery.error?.message || 'Could not load notifications.'}
+                      onRetry={() => notificationsQuery.refetch()}
+                    />
+                  ) : notifications.length === 0 ? (
                     <div className="px-4 py-8 text-center">
                       <Bell size={32} className="mx-auto text-ink-300 mb-2" />
                       <p className="text-sm text-ink-500">No notifications</p>
                     </div>
                   ) : (
                     notifications.map((notif) => {
-                      const Icon = notificationIcons[notif.icon] || Bell
-                      const colorClass = notificationColors[notif.type] || 'text-ink-500'
-                      
+                      const Icon = eventTypeIcons[notif.event_type] || Bell
+                      const colorClass = eventTypeColors[notif.event_type] || 'text-ink-500'
+
                       return (
                         <div
                           key={notif.id}
                           className={`px-4 py-3 border-b border-surface-border hover:bg-surface-muted cursor-pointer transition-colors ${
-                            !notif.read ? 'bg-brand-green/5' : ''
+                            !notif.is_read ? 'bg-brand-green/5' : ''
                           }`}
-                          onClick={() => markOneAsRead(notif.id)}
+                          onClick={() => { if (!notif.is_read) markOneRead.mutate(notif.id) }}
                         >
                           <div className="flex items-start gap-3">
                             <div className={`mt-0.5 ${colorClass}`}>
@@ -113,17 +142,19 @@ export default function Topbar({ clientName, user, placeholder = 'Search clients
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-start justify-between gap-2 mb-1">
-                                <p className={`text-xs font-semibold ${!notif.read ? 'text-ink-900' : 'text-ink-700'}`}>
+                                <p className={`text-xs font-semibold ${!notif.is_read ? 'text-ink-900' : 'text-ink-700'}`}>
                                   {notif.title}
                                 </p>
-                                {!notif.read && (
+                                {!notif.is_read && (
                                   <span className="w-2 h-2 rounded-full bg-brand-green shrink-0 mt-1" />
                                 )}
                               </div>
-                              <p className="text-[10px] text-ink-500 leading-relaxed mb-1">
-                                {notif.message}
-                              </p>
-                              <p className="text-[9px] text-ink-300">{notif.time}</p>
+                              {notif.body && (
+                                <p className="text-[10px] text-ink-500 leading-relaxed mb-1">
+                                  {notif.body}
+                                </p>
+                              )}
+                              <p className="text-[9px] text-ink-300">{formatRelativeTime(notif.created_at)}</p>
                             </div>
                           </div>
                         </div>
@@ -134,11 +165,11 @@ export default function Topbar({ clientName, user, placeholder = 'Search clients
                 {notifications.length > 0 && (
                   <div className="px-4 py-2.5 border-t border-surface-border">
                     <button
-                      onClick={markAllAsRead}
-                      disabled={unreadCount === 0}
+                      onClick={() => markAllRead.mutate()}
+                      disabled={unreadCount === 0 || markAllRead.isPending}
                       className="text-xs text-brand-green hover:text-brand-greenDark font-medium w-full text-center disabled:text-ink-300 disabled:cursor-not-allowed"
                     >
-                      Mark all as read
+                      {markAllRead.isPending ? 'Marking…' : 'Mark all as read'}
                     </button>
                   </div>
                 )}

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import Sidebar from './Sidebar.jsx'
 import Topbar from './Topbar.jsx'
-import { currentClientUser } from '../data/mockData'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const navItems = [
   { to: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -25,9 +25,16 @@ const bottomItems = [
 ]
 
 export default function ClientLayout() {
+  const { user, logout } = useAuth()
+
   return (
     <div className="h-screen flex flex-col bg-surface-muted">
-      <Topbar clientName={currentClientUser.company} user={currentClientUser} settingsPath="/client/settings" />
+      <Topbar 
+        clientName={user?.company_id ? `Company ${user.company_id}` : null} 
+        user={user} 
+        logout={logout}
+        settingsPath="/client/settings" 
+      />
       <div className="flex flex-1 min-h-0">
         <Sidebar items={navItems} bottomItems={bottomItems} />
         <main className="flex-1 overflow-y-auto">

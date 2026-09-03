@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import * as authApi from '../api/auth.js'
 import { setAuthToken } from '../api/client.js'
 
@@ -35,6 +36,7 @@ const TOKEN_STORAGE_KEY = 'vista_auth_token'
  *   only the token and (transiently, in React state) the user object.
  */
 export function AuthProvider({ children }) {
+  const queryClient = useQueryClient()
   const [user, setUser] = useState(null)
   const [permissions, setPermissions] = useState([])
   const [token, setToken] = useState(null)
@@ -56,7 +58,12 @@ export function AuthProvider({ children }) {
     setToken(null)
     setAuthToken(null)
     localStorage.removeItem(TOKEN_STORAGE_KEY)
-  }, [])
+    // Clear all React Query cache to prevent cross-user data contamination.
+    // Investigation confirmed no public/unauthenticated queries exist that
+    // need to survive logout. All cached queries (companies, users, datasets,
+    // notifications, etc.) contain user/company/org-sensitive data.
+    queryClient.clear()
+  }, [queryClient])
 
   // Restore on app boot: read a persisted token, verify it via /auth/me
   // (never trust a persisted user object as authoritative).

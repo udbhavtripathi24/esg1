@@ -1,233 +1,165 @@
-import { useState } from 'react'
-import { Zap, Droplet, Wind, Recycle, Database, CheckCircle2, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Zap, Droplet, Recycle, Database } from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
-import { Card, Button, ProgressBar } from '../../components/ui.jsx'
-import FileDropzone from '../../components/FileDropzone.jsx'
-import { clientKpiOverview, frameworkStatus, myTasks as myTasksSeed, reportingCalendar } from '../../data/mockData'
+import { Card, KpiTile, EmptyState } from '../../components/ui.jsx'
+import LoadingState from '../../components/LoadingState.jsx'
+import ErrorState from '../../components/ErrorState.jsx'
+import { useClientDashboard, useClientDashboardTasks } from '../../hooks/useDashboard.js'
 
-const iconMap = { zap: Zap, droplet: Droplet, cloud: Wind, recycle: Recycle, database: Database }
+/**
+ * Dashboard V1 — deterministic/structural methodology only. See
+ * app/services/dashboard_service.py's module docstring.
+ *
+ * Carbon Emissions is DELIBERATELY absent from active visualization — no
+ * emission-factor methodology has been approved. Framework Status and
+ * Reporting Calendar are DELIBERATELY absent — no framework-tracking or
+ * scheduling model exists anywhere in this backend. None of these are
+ * bugs; all three are explicit, disclosed deferrals, not omissions.
+ *
+ * The mock's decorative sparkline curves under each card are NOT
+ * reproduced — they implied continuous historical trend data that
+ * doesn't exist (only two period totals are ever compared, for QoQ).
+ * Drawing a fake curve would visually fabricate precision the real data
+ * doesn't have.
+ */
 
-const kpiTint = {
-  zap: { bg: 'bg-amber-100', text: 'text-amber-500', chart: '#F5A623' },
-  droplet: { bg: 'bg-blue-100', text: 'text-blue-500', chart: '#3B82F6' },
-  cloud: { bg: 'bg-ink-100', text: 'text-ink-400', chart: '#9CA3AF' },
-  recycle: { bg: 'bg-blue-100', text: 'text-blue-500', chart: '#3B82F6' },
-  database: { bg: 'bg-purple-100', text: 'text-purple-500', chart: '#A855F7' },
+function currentQuarterRange() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const q = Math.floor(now.getMonth() / 3)
+  const startMonth = q * 3
+  const start = new Date(year, startMonth, 1)
+  const end = new Date(year, startMonth + 3, 0)
+  const iso = (d) => d.toISOString().slice(0, 10)
+  return { periodStart: iso(start), periodEnd: iso(end), label: `Q${q + 1} ${year}` }
 }
 
-export default function ClientDashboard() {
-  const [tasks, setTasks] = useState(myTasksSeed.map((t, i) => ({ ...t, id: i })))
-  const [uploadTask, setUploadTask] = useState(null)
-  const [toast, setToast] = useState(null)
-  const [expandedFramework, setExpandedFramework] = useState(null)
+const TASK_LABELS = { approved: 'Approved', awaiting_approval: 'Awaiting approval', not_submitted: 'Not submitted' }
+const TASK_COLORS = { approved: 'text-status-approved', awaiting_approval: 'text-status-review', not_submitted: 'text-ink-400' }
 
-  function completeTask(taskId) {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId))
-    setToast('Dataset uploaded and submitted for review.')
-    setTimeout(() => setToast(null), 3000)
+export default function ClientDashboard() {
+  const navigate = useNavigate()
+  const { periodStart, periodEnd, label } = currentQuarterRange()
+
+  const dashboardQuery = useClientDashboard(periodStart, periodEnd)
+  const tasksQuery = useClientDashboardTasks(periodStart, periodEnd)
+
+  if (dashboardQuery.isLoading) {
+    return (
+      <div>
+        <PageHeader title="Dashboard." subtitle={`${label} reporting period`} />
+        <LoadingState label="Loading dashboard…" />
+      </div>
+    )
+  }
+  if (dashboardQuery.isError) {
+    return (
+      <div>
+        <PageHeader title="Dashboard." subtitle={`${label} reporting period`} />
+        <ErrorState
+          message={dashboardQuery.error?.message || 'Could not load the dashboard.'}
+          onRetry={() => dashboardQuery.refetch()}
+        />
+      </div>
+    )
+  }
+
+  const data = dashboardQuery.data
+  const hasAnyData = data.energy_consumption.value !== null || data.water_withdrawal.value !== null
+  const fmtDelta = (pct) => (pct === null || pct === undefined) ? undefined : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
+  const trendFor = (pct) => (pct !== null && pct !== undefined && pct < 0) ? 'down' : 'up'
+
+  if (!hasAnyData) {
+    return (
+      <div>
+        <PageHeader title="Dashboard." subtitle={`${label} reporting period`} />
+        <div className="bg-white border border-surface-border rounded-lg">
+          <EmptyState
+            title="No approved data available"
+            subtitle="Once a submission for this period is reviewed and approved, your dashboard will populate here."
+          />
+        </div>
+      </div>
+    )
   }
 
   return (
     <div>
-      <PageHeader title="Dashboard." subtitle="Q2 2026 reporting period · Meridian Energy Corp" />
+      <PageHeader title="Dashboard." subtitle={`${label} reporting period`} />
 
-      {toast && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-md bg-brand-green/10 text-brand-greenDark text-xs mb-4">
-          <CheckCircle2 size={16} /> {toast}
+      <div className="mb-6">
+        <p className="text-xs font-semibold text-ink-900 mb-3">ESG Performance Overview</p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiTile
+            icon={Zap} label="Energy Consumption" tint="amber"
+            value={data.energy_consumption.value !== null ? Math.round(data.energy_consumption.value).toLocaleString() : '—'}
+            unit={data.energy_consumption.value !== null ? data.energy_consumption.unit : undefined}
+            delta={fmtDelta(data.energy_qoq_percentage)} trend={trendFor(data.energy_qoq_percentage)}
+          />
+          <KpiTile
+            icon={Droplet} label="Water Withdrawal" tint="blue"
+            value={data.water_withdrawal.value !== null ? data.water_withdrawal.value.toLocaleString() : '—'}
+            unit={data.water_withdrawal.value !== null ? data.water_withdrawal.unit : undefined}
+            delta={fmtDelta(data.water_qoq_percentage)} trend={trendFor(data.water_qoq_percentage)}
+          />
+          <KpiTile
+            icon={Recycle} label="Water Recycled" tint="green"
+            value={data.water_recycled_percentage !== null ? data.water_recycled_percentage.toFixed(0) : '—'}
+            unit={data.water_recycled_percentage !== null ? '%' : undefined}
+          />
+          <KpiTile
+            icon={Database} label="Domain Coverage" tint="purple"
+            value={`${data.domain_completeness.approved_count}/${data.domain_completeness.total}`}
+            unit="domains"
+          />
         </div>
-      )}
-
-      <h3 className="text-xs font-semibold text-ink-900 mb-3">ESG Performance Overview</h3>
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        {clientKpiOverview.map((k) => {
-          const Icon = iconMap[k.icon]
-          const tint = kpiTint[k.icon]
-          return (
-            <div key={k.label} className="bg-white border border-surface-border rounded-lg p-4">
-              <div className="flex items-start justify-between">
-                <div className={`w-9 h-9 rounded-md flex items-center justify-center ${tint.bg} ${tint.text}`}>
-                  <Icon size={17} />
-                </div>
-                <span className="text-[11px] font-medium text-status-approved">↗ {k.delta}</span>
-              </div>
-              <div className="mt-3 text-sm font-semibold text-ink-900">
-                {k.value} <span className="text-[10px] font-normal text-ink-500">{k.unit}</span>
-              </div>
-              <div className="text-xs text-ink-500 mt-0.5">{k.label}</div>
-              <AreaSparkline color={tint.chart} />
-              <div className="text-[8px] text-ink-300 mt-1">
-                {k.label === 'Data collection' ? 'vs last month' : 'Q2 2026 vs Q1 2026'}
-              </div>
-            </div>
-          )
-        })}
+        {/* Carbon Emissions: honest deferred state, not a computed card. */}
+        <p className="text-[10px] text-ink-300 mt-3">
+          Carbon emissions: methodology not yet configured — awaiting approved emission-factor methodology.
+        </p>
       </div>
 
-      <h3 className="text-xs font-semibold text-ink-900 mb-3">Framework Status</h3>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 items-start">
-        {frameworkStatus.map((f) => {
-          const expanded = expandedFramework === f.code
-          return (
-            <div
-              key={f.code}
-              onClick={() => setExpandedFramework(expanded ? null : f.code)}
-              className={`bg-white border rounded-lg p-4 cursor-pointer transition-colors ${
-                expanded ? 'border-brand-green' : 'border-surface-border hover:border-ink-300'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ backgroundColor: `${f.color}1A`, color: f.color }}>
-                  {f.code}
-                </span>
-                <span className="text-[8px] font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{f.stage}</span>
-                <span className="text-sm font-semibold text-ink-900">{f.pct}%</span>
-              </div>
-              <p className="text-[8px] text-ink-500 mb-3">{f.name}</p>
-              <ProgressBar pct={f.pct} color={f.color} />
-              {expanded ? (
-                <div className="mt-2 space-y-1">
-                  <div className="flex items-center justify-between text-[8px]">
-                    <span className="text-ink-300">Due date</span>
-                    <span className="text-ink-900 font-medium">{f.dueDate}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[8px]">
-                    <span className="text-ink-300">Last updated</span>
-                    <span className="text-ink-900 font-medium">2 days ago</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[8px]">
-                    <span className="text-ink-300">Owner</span>
-                    <span className="text-ink-900 font-medium">{f.owner}</span>
-                  </div>
-                  {f.openIssues > 0 && (
-                    <div className="mt-2 px-2 py-1.5 rounded-md bg-status-pending/10 text-status-pending text-[8px] font-medium">
-                      {f.openIssues} open issue{f.openIssues > 1 ? 's' : ''} require attention
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-[8px] text-ink-300 mt-1.5">Updated 2 days ago</div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-        <Card title="My Tasks" padded={false}>
-          {tasks.length === 0 ? (
-            <p className="text-xs text-ink-300 px-5 py-6">All caught up — no pending uploads.</p>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card title="My Tasks" subtitle="Submission status for this reporting period">
+          {tasksQuery.isLoading ? (
+            <LoadingState label="Loading…" />
+          ) : tasksQuery.isError ? (
+            <ErrorState message="Could not load task status." onRetry={() => tasksQuery.refetch()} />
           ) : (
-            <div className="divide-y divide-surface-border">
-              {tasks.map((t) => (
-                <div key={t.id} className="flex items-center justify-between px-5 py-4">
+            <div className="space-y-3">
+              {tasksQuery.data.map((t) => (
+                <div key={t.upload_type_code} className="flex items-center justify-between border-b border-surface-border last:border-0 pb-3 last:pb-0">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-medium text-ink-900">{t.title}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-status-pending/10 text-status-pending text-[8px] font-medium">{t.priority}</span>
-                    </div>
-                    <p className="text-[8px] text-ink-500 mt-1">{t.desc}</p>
-                    <p className="text-[9px] text-ink-300 mt-1 flex items-center gap-1.5">
-                      Updated on {t.updated}
-                      <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-medium">{t.status}</span>
-                    </p>
+                    <p className="text-xs font-medium text-ink-900">{t.display_name}</p>
+                    <p className={`text-[10px] mt-0.5 ${TASK_COLORS[t.status]}`}>{TASK_LABELS[t.status]}</p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setUploadTask(t)}>Upload</Button>
+                  {t.status !== 'approved' && (
+                    <button
+                      onClick={() => navigate('/client/upload-center')}
+                      className="text-[10px] font-medium text-brand-green hover:underline"
+                    >
+                      Upload →
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </Card>
 
-        <Card title="Reporting Calendar">
-          <div className="space-y-4">
-            {reportingCalendar.map((r, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-md bg-surface-muted flex flex-col items-center justify-center shrink-0">
-                  <span className="text-[9px] text-ink-500 leading-none">{r.month}</span>
-                  <span className="text-[10px] font-semibold text-ink-900 leading-none mt-0.5">{r.date}</span>
-                </div>
-                <p className="text-[10px] text-ink-700 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-status-pending shrink-0" />
-                  {r.label}
-                </p>
+        <Card title="Domain Completeness" subtitle={`${data.domain_completeness.percentage}% of MVP domains approved this period`}>
+          <div className="space-y-2.5">
+            {Object.entries(data.domain_completeness.domains).map(([code, approved]) => (
+              <div key={code} className="flex items-center justify-between text-[10px]">
+                <span className="text-ink-700 capitalize">{code.replace('_data', '')}</span>
+                <span className={approved ? 'text-status-approved font-medium' : 'text-ink-300'}>
+                  {approved ? 'Approved' : 'Not yet'}
+                </span>
               </div>
             ))}
           </div>
         </Card>
       </div>
-
-      {uploadTask && (
-        <UploadTaskModal
-          task={uploadTask}
-          onClose={() => setUploadTask(null)}
-          onComplete={() => { completeTask(uploadTask.id); setUploadTask(null) }}
-        />
-      )}
     </div>
-  )
-}
-
-function UploadTaskModal({ task, onClose, onComplete }) {
-  const [files, setFiles] = useState([])
-  const [error, setError] = useState(false)
-
-  function handleSubmit() {
-    if (files.length === 0) {
-      setError(true)
-      return
-    }
-    onComplete()
-  }
-
-  return (
-    <div className="fixed inset-0 bg-ink-900/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-6 border-b border-surface-border">
-          <div>
-            <h3 className="font-semibold text-ink-900">{task.title}</h3>
-            <p className="text-xs text-ink-500 mt-0.5">{task.desc}</p>
-          </div>
-          <button onClick={onClose} className="text-ink-300 hover:text-ink-700"><X size={18} /></button>
-        </div>
-        <div className="p-6">
-          <FileDropzone
-            files={files}
-            onFilesChange={(f) => { setFiles(f); setError(false) }}
-            accept=".xlsx,.csv,.pdf"
-            hint="Excel, CSV or PDF — up to 25MB"
-          />
-          {error && <p className="text-xs text-status-pending mt-2">Attach a file before submitting.</p>}
-        </div>
-        <div className="flex justify-end gap-3 p-6 border-t border-surface-border">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit}>Submit</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AreaSparkline({ color }) {
-  const gradId = `spark-${color.replace('#', '')}`
-  return (
-    <svg viewBox="0 0 100 40" className="w-full h-12 mt-2" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M0,24 C12,10 22,8 33,18 C44,28 52,30 62,20 C72,10 82,6 100,14 L100,40 L0,40 Z"
-        fill={`url(#${gradId})`}
-      />
-      <path
-        d="M0,24 C12,10 22,8 33,18 C44,28 52,30 62,20 C72,10 82,6 100,14"
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
   )
 }

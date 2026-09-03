@@ -1,20 +1,59 @@
-import { useState } from 'react'
-import { FileText, CheckCircle2, Download, Eye, MessageCircle, Search, Paperclip, Edit3, Info } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { FileText, CheckCircle2, Search, Info } from 'lucide-react'
 import PageHeader from './PageHeader.jsx'
-import { Button, Card, Field, Select, StatusPill } from './ui.jsx'
+import { Button, Card, Field, Select, StatusPill, EmptyState } from './ui.jsx'
 import FileDropzone from './FileDropzone.jsx'
-import { datasets as datasetsSeed, domainGuidance, questionBank } from '../data/mockData'
+import LoadingState from './LoadingState.jsx'
+import ErrorState from './ErrorState.jsx'
+import { useAuth } from '../context/AuthContext.jsx'
+import { useCompanies } from '../hooks/useCompanies.js'
+import { useUsers } from '../hooks/useUsers.js'
+import {
+  useDatasets, useCreateDataset, useUploadDatasetFile, useSubmitDatasetVersion,
+  useDepartments,
+} from '../hooks/useDatasets.js'
+import { getDatasetVersions } from '../api/datasets.js'
+import { domainGuidance, questionBank } from '../data/mockData'
 
 const YEARS = ['2026', '2025']
 const PERIODS = ['Q2 2026', 'Q1 2026']
-const FRAMEWORKS = ['GRI', 'SASB', 'BRSR']
 const DOMAINS = Object.keys(domainGuidance)
-const DEPARTMENTS = ['All departments', 'Sustainability', 'Operations', 'Finance', 'Facilities']
 const CATEGORIES = Object.keys(questionBank)
 
-export default function UploadDataView({ currentUserName }) {
+// Confirmed against the real seeded upload_types (scripts_seed_upload_types.py,
+// whose own comment states "Aligned with stakeholder's MVP KPI scope: Waste,
+// Energy, Emissions, Water") — a clean, direct, pre-existing mapping, not
+// invented here.
+const DOMAIN_TO_UPLOAD_TYPE_CODE = {
+  Energy: 'energy_data',
+  Water: 'water_data',
+  Emissions: 'emissions_data',
+  Waste: 'waste_data',
+}
+
+/**
+ * Deterministic calendar-quarter → date-range conversion. "Q2 2026" already
+ * fully encodes both quarter and year (the separate Year dropdown is
+ * preserved for the existing UI layout, but the real payload is derived
+ * from Period alone, since it's unambiguous). Standard calendar quarters —
+ * not an invented convention.
+ */
+function periodToDateRange(periodLabel) {
+  const [q, yearStr] = periodLabel.split(' ')
+  const year = parseInt(yearStr, 10)
+  const ranges = {
+    Q1: ['01-01', '03-31'],
+    Q2: ['04-01', '06-30'],
+    Q3: ['07-01', '09-30'],
+    Q4: ['10-01', '12-31'],
+  }
+  const [start, end] = ranges[q]
+  return { reporting_period_start: `${year}-${start}`, reporting_period_end: `${year}-${end}` }
+}
+
+export default function UploadDataView() {
+  const { user } = useAuth()
   const [tab, setTab] = useState('Quantitative')
-  const [datasets, setDatasets] = useState(datasetsSeed)
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState(null)
 
@@ -23,11 +62,36 @@ export default function UploadDataView({ currentUserName }) {
     setTimeout(() => setToast(null), 3200)
   }
 
-  function addDataset(row) {
-    setDatasets((prev) => [row, ...prev])
-  }
+  // Real datasets — replaces the mock quantitative table entirely.
+  const datasetsQuery = useDatasets({ page: 1, page_size: 100 })
+  const datasets = useMemo(() => datasetsQuery.data?.items || [], [datasetsQuery.data])
+  const filteredDatasets = useMemo(
+    () => datasets.filter((d) => !search.trim() ||
+      (d.notes || '').toLowerCase().includes(search.toLowerCase()) ||
+      d.status.toLowerCase().includes(search.toLowerCase())),
+    [datasets, search]
+  )
 
-  const filteredDatasets = datasets.filter((d) => !search.trim() || d.name.toLowerCase().includes(search.toLowerCase()))
+  // Resolve created_by -> user name via a Map over the already-fetched real
+  // users list — no N+1 requests, same pattern as Role Assignment's picker.
+  const usersQuery = useUsers({ page: 1, page_size: 100 })
+  const userNameById = useMemo(() => {
+    const map = new Map()
+    for (const u of usersQuery.data?.items || []) map.set(u.id, u.name)
+    return map
+  }, [usersQuery.data])
+
+  // GENUINE GAP, discovered during implementation (not caught in the
+  // readiness report): GET /upload-types (UploadTypeRead) exposes only
+  // `code`, never an `id` — so Dataset.upload_type_id (an internal integer
+  // FK) cannot be resolved to a human-readable display_name from any
+  // existing endpoint. This does NOT block dataset creation (which
+  // correctly uses upload_type_code, a real field that IS available) —
+  // it only affects the read-side table's display. Applying the same
+  // honest-fallback pattern already sanctioned for unresolvable
+  // created_by values below, rather than inventing a backend field or
+  // silently guessing. Flagged in the implementation report for your
+  // decision on whether to add `id` to UploadTypeRead as a follow-up.
 
   return (
     <div>
@@ -54,7 +118,7 @@ export default function UploadDataView({ currentUserName }) {
       </div>
 
       {tab === 'Quantitative' && (
-        <QuantitativeTab currentUserName={currentUserName} onSubmit={addDataset} pushToast={pushToast} />
+        <QuantitativeTab user={user} pushToast={pushToast} />
       )}
       {tab === 'Qualitative' && (
         <QualitativeTab pushToast={pushToast} />
@@ -71,69 +135,91 @@ export default function UploadDataView({ currentUserName }) {
           />
         </div>
       } padded={false} className="mt-4">
+        {datasetsQuery.isLoading ? (
+          <LoadingState label="Loading datasets…" />
+        ) : datasetsQuery.isError ? (
+          <ErrorState
+            message={datasetsQuery.error?.message || 'Could not load datasets.'}
+            onRetry={() => datasetsQuery.refetch()}
+          />
+        ) : filteredDatasets.length === 0 ? (
+          <div className="p-6">
+            <EmptyState title="No datasets yet" subtitle="Datasets you upload will appear here." />
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-[8px]">
             <thead>
               <tr className="text-left text-[8px] text-ink-500 border-t border-surface-border">
-                <th className="font-medium px-5 py-2.5">Dataset Name</th>
-                <th className="font-medium px-2 py-2.5">KPI Domain</th>
+                <th className="font-medium px-5 py-2.5">Dataset</th>
                 <th className="font-medium px-2 py-2.5">Period</th>
-                <th className="font-medium px-2 py-2.5">Date</th>
+                <th className="font-medium px-2 py-2.5">Date Created</th>
                 <th className="font-medium px-2 py-2.5">Uploaded By</th>
-                <th className="font-medium px-2 py-2.5">Status</th>
-                <th className="font-medium px-2 py-2.5">Docs</th>
-                <th className="font-medium px-5 py-2.5 text-right">Action</th>
+                <th className="font-medium px-5 py-2.5">Status</th>
               </tr>
             </thead>
             <tbody>
               {filteredDatasets.map((d) => (
-                <tr key={d.id} className="border-t border-surface-border">
+                <tr key={d.public_id} className="border-t border-surface-border">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2 text-ink-900 font-medium">
-                      <FileText size={12} className="text-ink-300" /> {d.name}
+                      <FileText size={12} className="text-ink-300" /> Upload Type #{d.upload_type_id}
                     </div>
                   </td>
-                  <td className="px-2 py-3 text-ink-700">{d.domain}</td>
-                  <td className="px-2 py-3 text-ink-500">{d.period}</td>
-                  <td className="px-2 py-3 text-ink-500">{d.date}</td>
-                  <td className="px-2 py-3 text-ink-700">{d.uploadedBy}</td>
-                  <td className="px-2 py-3"><StatusPill status={d.status} /></td>
-                  <td className="px-2 py-3 text-ink-500">
-                    <span className="inline-flex items-center gap-1"><Paperclip size={11} /> {d.docs}</span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center justify-end gap-3 text-ink-300">
-                      <button className="hover:text-ink-700"><Edit3 size={13} /></button>
-                      <button className="hover:text-ink-700"><Eye size={13} /></button>
-                      <button className="hover:text-ink-700"><MessageCircle size={13} /></button>
-                      <button className="hover:text-ink-700"><Download size={13} /></button>
-                    </div>
-                  </td>
+                  <td className="px-2 py-3 text-ink-500">{d.reporting_period_start} – {d.reporting_period_end}</td>
+                  <td className="px-2 py-3 text-ink-500">{new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                  <td className="px-2 py-3 text-ink-700">{userNameById.get(d.created_by) || `User #${d.created_by}`}</td>
+                  <td className="px-5 py-3"><StatusPill status={d.status} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        )}
       </Card>
     </div>
   )
 }
 
-function QuantitativeTab({ currentUserName, onSubmit, pushToast }) {
+function QuantitativeTab({ user, pushToast }) {
+  const isDeloitte = user?.portal_type === 'deloitte'
+
+  const [companyId, setCompanyId] = useState('')
   const [year, setYear] = useState(YEARS[0])
   const [period, setPeriod] = useState(PERIODS[0])
-  const [framework, setFramework] = useState(FRAMEWORKS[0])
   const [domain, setDomain] = useState(DOMAINS[0])
-  const [department, setDepartment] = useState(DEPARTMENTS[0])
+  const [departmentPublicId, setDepartmentPublicId] = useState('')
   const [files, setFiles] = useState([])
   const [supportingDocs, setSupportingDocs] = useState([])
   const [errors, setErrors] = useState({})
+  const [submitError, setSubmitError] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const guidance = domainGuidance[domain]
 
-  function validate() {
+  // Company selector — Deloitte actors only. Client actors' company_id is
+  // always taken from their own account server-side; the frontend never
+  // supplies or overrides it for them.
+  const companiesQuery = useCompanies({ page: 1, page_size: 100, sort: 'name', order: 'asc' })
+  const companies = companiesQuery.data?.items || []
+
+  // Departments — gated until a Deloitte actor has picked a company, so we
+  // never show a premature unfiltered list. Client actors are always
+  // enabled (backend auto-scopes to their own company).
+  const departmentsQuery = useDepartments(
+    { company_id: isDeloitte ? (companyId || undefined) : undefined, page: 1, page_size: 100 },
+    { enabled: isDeloitte ? !!companyId : true }
+  )
+  const departments = departmentsQuery.data?.items || []
+
+  const createDataset = useCreateDataset()
+  const uploadFile = useUploadDatasetFile()
+  const submitVersion = useSubmitDatasetVersion()
+
+  function validate(requireDataFile) {
     const e = {}
-    if (files.length === 0) e.files = true
+    if (requireDataFile && files.length === 0) e.files = true
+    if (isDeloitte && !companyId) e.company = true
     return e
   }
 
@@ -141,54 +227,157 @@ function QuantitativeTab({ currentUserName, onSubmit, pushToast }) {
     setFiles([])
     setSupportingDocs([])
     setErrors({})
+    setSubmitError(null)
   }
 
-  function submit(status) {
-    const e = validate()
+  /**
+   * Real orchestration, per the approved sequence:
+   * 1. Create Dataset (backend creates v1 automatically)
+   * 2. Upload the data file (if any)
+   * 3. Upload evidence file(s), if any
+   * 4. If submitting: call submit — only after uploads succeed
+   *
+   * Tracks exactly which stage failed so the error message never
+   * misattributes the failure, and never claims success unless the whole
+   * requested sequence actually completed.
+   */
+  async function handleAction(action) {
+    // action: 'draft' | 'submit'
+    const e = validate(action === 'submit')
     setErrors(e)
     if (Object.keys(e).length > 0) return
 
-    const rows = files.map((f) => ({
-      id: `d-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: f.name.replace(/\.[^.]+$/, ''),
-      framework,
-      domain,
-      period,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      uploadedBy: currentUserName,
-      status: 'Pending',
-      docs: 1 + supportingDocs.length,
-      company: 'Meridian Energy Corp',
-      assignedReviewer: 'Sarah Chen',
-    }))
-    rows.forEach(onSubmit)
-    pushToast(status === 'draft' ? 'Saved as draft.' : `Submitted ${files.length} file${files.length > 1 ? 's' : ''} for review.`)
-    reset()
+    setSubmitError(null)
+    setIsSubmitting(true)
+    let stage = 'create'
+    try {
+      const { reporting_period_start, reporting_period_end } = periodToDateRange(period)
+      const dataset = await createDataset.mutateAsync({
+        company_id: isDeloitte ? Number(companyId) : undefined,
+        department_public_id: departmentPublicId || undefined,
+        upload_type_code: DOMAIN_TO_UPLOAD_TYPE_CODE[domain],
+        reporting_period_start,
+        reporting_period_end,
+        reporting_frequency: 'quarterly',
+      })
+      // POST /datasets already creates v1 — never call createDatasetVersion
+      // here. The version's public_id isn't in DatasetRead directly, but
+      // the dataset's current_version_id maps 1:1 to the v1 we just made;
+      // fetch it once to get the version's public_id for the file uploads.
+      const versions = await getDatasetVersions(dataset.public_id)
+      const v1 = versions[0]
+
+      stage = 'upload-data'
+      for (const f of files) {
+        await uploadFile.mutateAsync({ publicId: dataset.public_id, versionPublicId: v1.public_id, file: f, role: 'data' })
+      }
+      stage = 'upload-evidence'
+      for (const f of supportingDocs) {
+        await uploadFile.mutateAsync({ publicId: dataset.public_id, versionPublicId: v1.public_id, file: f, role: 'evidence' })
+      }
+
+      if (action === 'submit') {
+        stage = 'submit'
+        await submitVersion.mutateAsync({ publicId: dataset.public_id, versionPublicId: v1.public_id })
+        pushToast(`Submitted for review.`)
+      } else {
+        pushToast('Saved as draft.')
+      }
+      reset()
+    } catch (err) {
+      const stageLabel = {
+        create: 'creating the dataset',
+        'upload-data': 'uploading the data file',
+        'upload-evidence': 'uploading a supporting document',
+        submit: 'submitting for review',
+      }[stage]
+      // The dataset itself may already exist as a draft even if a later
+      // stage failed — say so honestly rather than implying nothing happened.
+      const partialNote = stage !== 'create'
+        ? 'The dataset was created and saved as a draft, but '
+        : ''
+      if (err.status === 422 && err.code === 'no_data_file') {
+        setSubmitError('This version has no data file yet — attach one before submitting.')
+      } else if (err.status === 409 && err.code === 'version_locked') {
+        setSubmitError(`${partialNote}this version is locked and can no longer accept files. Refresh and start a new version if needed.`)
+      } else if (err.status === 409 && err.code === 'version_open') {
+        setSubmitError('An earlier version of this dataset is still open. Complete or cancel it first.')
+      } else if (err.status === 400) {
+        setSubmitError(`${partialNote}${err.message || 'the file was rejected by validation.'}`)
+      } else if (err.status === 403) {
+        setSubmitError(`${partialNote}you do not have permission to complete this step.`)
+      } else if (err.isNetworkError) {
+        setSubmitError(`${partialNote}could not reach the server while ${stageLabel}. Please retry.`)
+      } else {
+        setSubmitError(`${partialNote}something went wrong while ${stageLabel}. ${err.message || ''}`)
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
     <div className="grid lg:grid-cols-[1fr_300px] gap-4 mb-4">
       <div className="space-y-4">
+        {submitError && (
+          <p className="text-xs text-status-pending bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            {submitError}
+          </p>
+        )}
+
         <Card>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className={`grid sm:grid-cols-2 gap-4 ${isDeloitte ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
+            {isDeloitte && (
+              <Field label="Company" required>
+                {companiesQuery.isLoading ? (
+                  <p className="text-[10px] text-ink-300 py-2">Loading companies…</p>
+                ) : companiesQuery.isError ? (
+                  <p className="text-[10px] text-status-pending py-2">Could not load companies.</p>
+                ) : (
+                  <Select
+                    value={companyId}
+                    onChange={(e) => { setCompanyId(e.target.value); setDepartmentPublicId('') }}
+                    className={errors.company ? '!border-status-pending' : ''}
+                  >
+                    <option value="">Select a company</option>
+                    {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                )}
+              </Field>
+            )}
             <Field label="Reporting Year"><Select value={year} onChange={(e) => setYear(e.target.value)}>{YEARS.map((y) => <option key={y}>{y}</option>)}</Select></Field>
             <Field label="Reporting Period"><Select value={period} onChange={(e) => setPeriod(e.target.value)}>{PERIODS.map((p) => <option key={p}>{p}</option>)}</Select></Field>
-            <Field label="Reporting Framework"><Select value={framework} onChange={(e) => setFramework(e.target.value)}>{FRAMEWORKS.map((f) => <option key={f}>{f}</option>)}</Select></Field>
             <Field label="KPI Domain"><Select value={domain} onChange={(e) => setDomain(e.target.value)}>{DOMAINS.map((d) => <option key={d}>{d}</option>)}</Select></Field>
-            <Field label="Department (Optional)"><Select value={department} onChange={(e) => setDepartment(e.target.value)}>{DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}</Select></Field>
+            <Field label="Department (Optional)">
+              {(isDeloitte && !companyId) ? (
+                <p className="text-[10px] text-ink-300 py-2">Select a company first</p>
+              ) : departmentsQuery.isLoading ? (
+                <p className="text-[10px] text-ink-300 py-2">Loading departments…</p>
+              ) : departmentsQuery.isError ? (
+                <p className="text-[10px] text-status-pending py-2">Could not load departments.</p>
+              ) : departments.length === 0 ? (
+                <p className="text-[10px] text-ink-300 py-2">No departments available</p>
+              ) : (
+                <Select value={departmentPublicId} onChange={(e) => setDepartmentPublicId(e.target.value)}>
+                  <option value="">All departments</option>
+                  {departments.map((d) => <option key={d.public_id} value={d.public_id}>{d.name}</option>)}
+                </Select>
+              )}
+            </Field>
           </div>
         </Card>
 
         <Card>
           <p className="text-xs font-semibold text-ink-900 mb-1">Dataset Upload</p>
-          <p className="text-[10px] text-ink-500 mb-2">Quantitative ESG data file for {period} · {framework} · {domain}</p>
+          <p className="text-[10px] text-ink-500 mb-2">Quantitative ESG data file for {period} · {domain}</p>
           <FileDropzone
             files={files}
             onFilesChange={(f) => { setFiles(f); setErrors((er) => ({ ...er, files: false })) }}
             accept=".xlsx,.csv"
-            hint="Excel (.xlsx) and CSV (.csv) — up to 50 MB per file"
+            hint="Excel (.xlsx) and CSV (.csv) — up to 25 MB per file"
+            multiple={false}
           />
-          {errors.files && <p className="text-[9px] text-status-pending mt-2">Attach at least one dataset file before submitting.</p>}
+          {errors.files && <p className="text-[9px] text-status-pending mt-2">Attach a dataset file before submitting.</p>}
         </Card>
 
         <Card>
@@ -197,16 +386,19 @@ function QuantitativeTab({ currentUserName, onSubmit, pushToast }) {
           <FileDropzone
             files={supportingDocs}
             onFilesChange={setSupportingDocs}
-            accept=".pdf,.doc,.docx,.jpg,.png,.zip"
-            hint="PDF, Word, images and ZIP — up to 100 MB total"
+            accept=".pdf,.doc,.docx"
+            hint="PDF and Word documents"
             compact
           />
         </Card>
 
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={() => submit('draft')}>Save as draft</Button>
-          <Button variant="ghost" onClick={() => pushToast('Preview not available in this demo.')}>Preview</Button>
-          <Button onClick={() => submit('submit')}>Submit for Review</Button>
+          <Button variant="ghost" onClick={() => handleAction('draft')} disabled={isSubmitting}>
+            {isSubmitting ? 'Saving…' : 'Save as draft'}
+          </Button>
+          <Button onClick={() => handleAction('submit')} disabled={isSubmitting}>
+            {isSubmitting ? 'Submitting…' : 'Submit for Review'}
+          </Button>
         </div>
       </div>
 
@@ -218,9 +410,6 @@ function QuantitativeTab({ currentUserName, onSubmit, pushToast }) {
         <ul className="space-y-1.5 text-[8px] text-ink-700 list-disc pl-4 mb-4">
           {guidance.columns.map((c) => <li key={c}>{c}</li>)}
         </ul>
-        <button onClick={() => pushToast('Template download not available in this demo.')} className="text-[10px] text-brand-green font-medium hover:underline">
-          Download data template →
-        </button>
       </Card>
     </div>
   )

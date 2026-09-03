@@ -1,9 +1,14 @@
 import { useMemo, useState } from 'react'
 import {
-  ChevronLeft, FileText, ShieldCheck, Info, History, Eye, Download,
-  CheckCircle2, AlertTriangle, XCircle, Circle, CheckCircle,
+  ChevronLeft, FileText, ShieldCheck, Info, History,
+  CheckCircle2, AlertTriangle, XCircle, Circle, CheckCircle, AlertOctagon,
 } from 'lucide-react'
 import { Button } from './ui.jsx'
+import LoadingState from './LoadingState.jsx'
+import ErrorState from './ErrorState.jsx'
+import { useDatasetVersions, useSites } from '../hooks/useDatasets.js'
+import { useReviews, useAssignReview, useDecideReview, useComments, useCreateComment } from '../hooks/useReviews.js'
+import { useKpiValues, useKpiDefinitions, useKpiValidation } from '../hooks/useKpiValues.js'
 
 const TABS = [
   { key: 'Data Preview', icon: FileText },
@@ -13,107 +18,182 @@ const TABS = [
 ]
 
 const DECISIONS = [
-  { key: 'Approved', label: 'Approve Dataset', desc: 'Data is accurate and complete', icon: CheckCircle2, bg: 'bg-status-approved/10', border: 'border-status-approved', text: 'text-status-approved' },
-  { key: 'Changes Requested', label: 'Request Changes', icon: AlertTriangle, bg: 'bg-status-review/10', border: 'border-status-review', text: 'text-status-review' },
-  { key: 'Rejected', label: 'Reject Dataset', desc: 'Dataset cannot be approved', icon: XCircle, bg: 'bg-status-pending/10', border: 'border-status-pending', text: 'text-status-pending' },
+  { key: 'approved', label: 'Approve Dataset', desc: 'Data is accurate and complete', icon: CheckCircle2, bg: 'bg-status-approved/10', border: 'border-status-approved', text: 'text-status-approved' },
+  { key: 'changes_requested', label: 'Request Changes', icon: AlertTriangle, bg: 'bg-status-review/10', border: 'border-status-review', text: 'text-status-review' },
+  { key: 'rejected', label: 'Reject Dataset', desc: 'Dataset cannot be approved', icon: XCircle, bg: 'bg-status-pending/10', border: 'border-status-pending', text: 'text-status-pending' },
 ]
 
-const severityStyle = {
-  fail: { bg: 'bg-status-pending/5', border: 'border-status-pending/20', icon: XCircle, text: 'text-status-pending' },
-  warn: { bg: 'bg-status-review/5', border: 'border-status-review/20', icon: AlertTriangle, text: 'text-status-review' },
-  pass: { bg: 'bg-status-approved/5', border: 'border-status-approved/20', icon: CheckCircle2, text: 'text-status-approved' },
-}
-
-function buildDetail(dataset) {
-  const sites = ['SITE-A', 'SITE-B', 'SITE-C', 'SITE-D', 'SITE-E'].slice(0, Math.max(4, Math.min(5, dataset.docs + 2)))
-  const flaggedIndex = 1
-  const rows = sites.map((site, i) => {
-    const base = 40000 + i * 8000
-    const flagged = i === flaggedIndex || i === sites.length - 1
-    return {
-      site,
-      month: 'Apr-26',
-      value: (base + (flagged ? 12000 : 0)).toLocaleString(),
-      pct: `${22 + i * 3}%`,
-      method: 'v2.1',
-      flagged,
-    }
-  })
-
-  const domainLabel = `${dataset.domain} (${dataset.domain === 'Energy' ? 'kWh' : dataset.domain === 'Water' ? 'ML' : dataset.domain === 'Emissions' ? 'tCO2e' : dataset.domain === 'Waste' ? 't' : 'score'})`
-
-  const validationItems = [
-    { severity: 'fail', title: 'Missing Values', category: 'Data Quality', detail: `3 blank cells in 'Scope 2 Method' column — rows 3, 6 (Site C) and required for all sites` },
-    { severity: 'pass', title: 'Duplicate Records', category: 'Data Quality', detail: 'No duplicate rows detected across all 36 records' },
-    { severity: 'warn', title: 'Date Format Consistency', category: 'Format', detail: `2 rows use 'MM/YY' format instead of standard 'MMM-YY' — rows 14 and 27` },
-    { severity: 'fail', title: 'Statistical Outlier Detection', category: 'Statistical', detail: `Site C April (51,840 kWh) and May (89,240 kWh) exceed 2 standard deviations from site mean (24,100 kWh). Possible data entry error.` },
-    { severity: 'pass', title: 'Unit Consistency', category: 'Data Quality', detail: `All ${dataset.domain.toLowerCase()} values expressed consistently throughout dataset` },
-    { severity: 'pass', title: 'Reporting Period Coverage', category: 'Completeness', detail: `All 3 months of ${dataset.period} (Apr, May, Jun) are present for all sites` },
-    { severity: 'warn', title: 'Site Reference Validation', category: 'Reference', detail: `Site ID 'SITE-D' in row 23 does not match the registered site list for ${dataset.company}` },
-    { severity: 'pass', title: 'Numeric Range Check', category: 'Statistical', detail: 'All flagged values fall within expected operational ranges' },
-  ]
-
-  const requiredChanges = [
-    { id: 'rc1', text: `Verify and correct Site C ${dataset.domain.toLowerCase()} meter readings for April and May 2026` },
-    { id: 'rc2', text: 'Attach utility bills for Sites A, B and C (full Q2 period)' },
-    { id: 'rc3', text: 'Clarify Scope 2 calculation methodology — state whether market-based or location-based' },
-  ]
-
-  const versionHistory = [
-    { version: 'v1.0', uploadedBy: dataset.uploadedBy, date: `${dataset.date} · 10:22 AM`, outcome: 'Under Review', notes: 'Initial submission' },
-    { version: 'v1.1 (current)', uploadedBy: dataset.uploadedBy, date: `${dataset.date} · 10:22 AM`, outcome: dataset.status === 'Changes Requested' ? 'Under Review' : dataset.status, notes: dataset.status === 'Changes Requested' ? 'Corrections pending' : 'Initial submission' },
-  ]
-
-  const supportingDocuments = Array.from({ length: Math.max(2, dataset.docs) }).map((_, i) => ({
-    name: `Q2 Meter Readings — Site ${String.fromCharCode(65 + i)}.pdf`,
-    size: `${(20 + i * 4.2).toFixed(1)} MB`,
-  }))
-
-  return { rows, validationItems, requiredChanges, versionHistory, supportingDocuments, domainLabel }
-}
-
-export default function ReviewDataWorkspace({ dataset, comments, onBack, onUpdateStatus, onAddComment }) {
+/**
+ * Review Center: dataset/version data, reviewer assignment, comments
+ * (including 'field'-kind as the real equivalent of "Required Changes"),
+ * approve/reject/request-changes — all real, from prior work.
+ *
+ * Data Preview and Validation are now ALSO real, backed by Layer 1's
+ * extracted KpiValue data (see app/api/routes/reviews.py's
+ * get_kpi_validation and app/api/routes/kpi_values.py). Both correctly
+ * show an honest "Not available yet" state until a version has actually
+ * been approved and its data extracted — this is not a placeholder
+ * anymore, it's the real, current, backend-reported availability.
+ *
+ * Validation is PROVISIONAL v1 structural/data-quality checking only —
+ * no ESG methodology, no scoring, no emission factors, no benchmarking.
+ * See the backend endpoint's own docstring for the exact rule set.
+ *
+ * Honestly still NOT real, by explicit decision (not fabricated):
+ * Supporting Documents listing — no backend endpoint exists to list a
+ * version's files (only single-file download by known public_id).
+ */
+export default function ReviewDataWorkspace({ dataset, companyName, uploaderName, currentUser, onBack, pushToast }) {
   const [tab, setTab] = useState('Data Preview')
   const [visitedTabs, setVisitedTabs] = useState(new Set(['Data Preview']))
   const [selectedDecision, setSelectedDecision] = useState(null)
   const [decisionNote, setDecisionNote] = useState('')
-  const [decisionMade, setDecisionMade] = useState(false)
-  const [requiredChanges, setRequiredChanges] = useState(null)
+  const [decisionError, setDecisionError] = useState(null)
+  const [newComment, setNewComment] = useState('')
   const [newChange, setNewChange] = useState('')
-const [toast, setToast] = useState(null)
-  const detail = useMemo(() => buildDetail(dataset), [dataset])
-  const changes = requiredChanges || detail.requiredChanges
+  const [commentError, setCommentError] = useState(null)
+
+  const versionsQuery = useDatasetVersions(dataset.public_id)
+  const versions = useMemo(() => versionsQuery.data || [], [versionsQuery.data])
+  // The highest version_number is always the current/active one — version
+  // numbers only increase (confirmed in create_new_version's backend logic).
+  // Note: DatasetRead exposes no internal `id`, only `public_id`, and
+  // DatasetVersionRead exposes no `id` either — so matching against
+  // dataset.current_version_id isn't possible from the frontend at all;
+  // this version_number-based approach is the only viable one.
+  const currentVersion = useMemo(() => {
+    if (!versions.length) return null
+    return versions.slice().sort((a, b) => b.version_number - a.version_number)[0]
+  }, [versions])
+
+  const reviewsQuery = useReviews(dataset.public_id, currentVersion?.public_id, { enabled: !!currentVersion })
+  const reviews = reviewsQuery.data || []
+  const pendingReview = reviews.find((r) => r.status === 'pending')
+  const isMyPendingReview = pendingReview && currentUser && pendingReview.reviewer_user_id === currentUser.id
+
+  const commentsQuery = useComments(dataset.public_id, currentVersion?.public_id, { enabled: !!currentVersion })
+  const comments = commentsQuery.data || []
+  const generalComments = comments.filter((c) => c.kind !== 'field')
+  const requiredChangeComments = comments.filter((c) => c.kind === 'field')
+
+  // Data Preview + Validation, backed by Layer 1. Both are correctly
+  // empty/unavailable until the version has actually been approved and
+  // extracted — kpi_values only ever get created on approval (see
+  // app/services/kpi_extraction_service.py), so no extra frontend
+  // gating is needed beyond what the backend already enforces.
+  const kpiValuesQuery = useKpiValues(
+    { dataset_version_public_id: currentVersion?.public_id, page_size: 200 },
+    { enabled: !!currentVersion }
+  )
+  const kpiValues = kpiValuesQuery.data?.items || []
+
+  const kpiDefinitionsQuery = useKpiDefinitions()
+  const kpiDefNameByCode = useMemo(() => {
+    const map = new Map()
+    for (const d of kpiDefinitionsQuery.data || []) map.set(d.code, d.display_name)
+    return map
+  }, [kpiDefinitionsQuery.data])
+
+  // Site names resolved via the existing real sites endpoint, scoped to
+  // this dataset's own company — same Map-resolution pattern used
+  // throughout this project (no N+1, one query for the whole page).
+  const sitesQuery = useSites({ company_id: dataset.company_id, page_size: 100 })
+  const siteNameByPublicId = useMemo(() => {
+    const map = new Map()
+    for (const s of sitesQuery.data?.items || []) map.set(s.public_id, s.name)
+    return map
+  }, [sitesQuery.data])
+
+  const validationQuery = useKpiValidation(dataset.public_id, currentVersion?.public_id, { enabled: !!currentVersion })
+
+  const assignReview = useAssignReview()
+  const decideReview = useDecideReview()
+  const createComment = useCreateComment()
 
   function selectTab(t) {
     setTab(t)
     setVisitedTabs((prev) => new Set(prev).add(t))
   }
 
-  function submitDecision() {
-    if (!selectedDecision) return
-    onUpdateStatus(selectedDecision)
-    if (decisionNote.trim()) onAddComment(decisionNote.trim())
-    setDecisionMade(true)
-    setDecisionNote('')
-    const decisionLabel = DECISIONS.find((d) => d.key === selectedDecision)?.label
-    setToast(`Review submitted — ${decisionLabel}.`)
-    setTimeout(() => setToast(null), 3500)
+  async function handleStartReview() {
+    if (!currentVersion || !currentUser) return
+    setDecisionError(null)
+    try {
+      await assignReview.mutateAsync({
+        datasetPublicId: dataset.public_id,
+        versionPublicId: currentVersion.public_id,
+        reviewerUserId: currentUser.id,
+      })
+      pushToast('Review started.')
+    } catch (err) {
+      setDecisionError(err.message || 'Could not start the review.')
+    }
   }
 
-  const failCount = detail.validationItems.filter((v) => v.severity === 'fail').length
-  const warnCount = detail.validationItems.filter((v) => v.severity === 'warn').length
-  const passCount = detail.validationItems.filter((v) => v.severity === 'pass').length
+  async function submitDecision() {
+    if (!selectedDecision || !pendingReview || !currentVersion) return
+    if (!decisionNote.trim()) {
+      setDecisionError('A decision note is required.')
+      return
+    }
+    setDecisionError(null)
+    try {
+      await decideReview.mutateAsync({
+        datasetPublicId: dataset.public_id,
+        versionPublicId: currentVersion.public_id,
+        reviewPublicId: pendingReview.public_id,
+        decision: selectedDecision,
+        note: decisionNote.trim(),
+      })
+      const label = DECISIONS.find((d) => d.key === selectedDecision)?.label
+      pushToast(`Review submitted — ${label}.`)
+      setSelectedDecision(null)
+      setDecisionNote('')
+    } catch (err) {
+      if (err.status === 409 && err.code === 'already_decided') {
+        setDecisionError('This review has already been decided.')
+      } else if (err.status === 403 && err.code === 'segregation_of_duties') {
+        setDecisionError('The uploader of this version cannot also approve it.')
+      } else if (err.status === 403 && err.code === 'not_assigned_reviewer') {
+        setDecisionError('You are not the assigned reviewer for this review.')
+      } else {
+        setDecisionError(err.message || 'Could not submit the decision.')
+      }
+    }
+  }
+
+  async function handleAddComment(kind, text, setter) {
+    if (!text.trim() || !currentVersion) return
+    setCommentError(null)
+    try {
+      await createComment.mutateAsync({
+        datasetPublicId: dataset.public_id,
+        versionPublicId: currentVersion.public_id,
+        body: { body: text.trim(), kind },
+      })
+      setter('')
+    } catch (err) {
+      setCommentError(err.message || 'Could not add the comment.')
+    }
+  }
+
+  const title = `${dataset.reporting_period_start} to ${dataset.reporting_period_end} — Upload Type #${dataset.upload_type_id}`
 
   const checklist = [
     { label: 'Dataset opened', done: true },
     { label: 'Data preview inspected', done: visitedTabs.has('Data Preview') },
     { label: 'Validation results reviewed', done: visitedTabs.has('Validation') },
-    { label: 'Comments added', done: comments.length > 0 || decisionNote.length > 0 },
-    { label: 'Required changes defined', done: changes.length > 0 },
-    { label: 'Decision made', done: decisionMade },
+    { label: 'Comments added', done: generalComments.length > 0 },
+    { label: 'Required changes reviewed', done: visitedTabs.has('Required Changes') },
+    { label: 'Decision made', done: !!currentVersion && ['approved', 'rejected', 'changes_requested'].includes(currentVersion.status) },
   ]
 
-  const title = `${dataset.period} ${dataset.domain} Consumption — Sites A/B/C`
+  if (versionsQuery.isLoading) {
+    return <LoadingState label="Loading dataset…" />
+  }
+  if (versionsQuery.isError) {
+    return <ErrorState message={versionsQuery.error?.message || 'Could not load this dataset.'} onRetry={() => versionsQuery.refetch()} />
+  }
 
   return (
     <div>
@@ -125,72 +205,34 @@ const [toast, setToast] = useState(null)
 
       <h2 className="text-lg font-semibold text-ink-900 mb-1">{title}</h2>
       <p className="text-[10px] text-ink-500 mb-4">
-        {dataset.framework} · {dataset.domain} · {dataset.period} · Submitted by {dataset.uploadedBy} on {dataset.date}
+        {companyName} · Submitted by {uploaderName} on {new Date(dataset.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
       </p>
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-4">
         <div>
-          {/* Dataset Summary */}
           <div className="bg-white border border-surface-border rounded-lg p-5 mb-4">
             <p className="text-xs font-semibold text-ink-900 mb-4">Dataset Summary</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[10px]">
-              <div>
-                <div className="text-[8px] text-ink-300">Company</div>
-                <div className="text-ink-900 font-medium">{dataset.company}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">Framework</div>
-                <div className="text-ink-900 font-medium">{dataset.framework}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">KPI Domain</div>
-                <div className="text-ink-900 font-medium">{dataset.domain}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">Reporting Period</div>
-                <div className="text-ink-900 font-medium">{dataset.period}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">Submitted By</div>
-                <div className="text-ink-900 font-medium">{dataset.uploadedBy}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">Submission Date</div>
-                <div className="text-ink-900 font-medium">{dataset.date}</div>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">Current Status</div>
-                <span className="inline-block px-2 py-0.5 rounded-full bg-status-review/10 text-status-review text-[9px] font-medium mt-0.5">
-                  {dataset.status === 'Pending' ? 'In Progress' : dataset.status}
-                </span>
-              </div>
-              <div>
-                <div className="text-[8px] text-ink-300">Assigned Reviewer</div>
-                <div className="text-ink-900 font-medium">{dataset.assignedReviewer}</div>
-              </div>
+              <div><div className="text-[8px] text-ink-300">Company</div><div className="text-ink-900 font-medium">{companyName}</div></div>
+              <div><div className="text-[8px] text-ink-300">Upload Type</div><div className="text-ink-900 font-medium">#{dataset.upload_type_id}</div></div>
+              <div><div className="text-[8px] text-ink-300">Reporting Period</div><div className="text-ink-900 font-medium">{dataset.reporting_period_start} – {dataset.reporting_period_end}</div></div>
+              <div><div className="text-[8px] text-ink-300">Status</div><div className="text-ink-900 font-medium">{dataset.status}</div></div>
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="bg-white border border-surface-border rounded-lg">
-            <div className="flex items-center gap-5 px-5 pt-4 border-b border-surface-border overflow-x-auto">
-              {TABS.map(({ key: t, icon: TabIcon }) => {
-                const badge = t === 'Validation' ? failCount
-                  : t === 'Required Changes' ? changes.length
-                  : 0
+          <div className="bg-white border border-surface-border rounded-lg overflow-hidden">
+            <div className="flex border-b border-surface-border overflow-x-auto">
+              {TABS.map((t) => {
+                const TIcon = t.icon
                 return (
                   <button
-                    key={t}
-                    onClick={() => selectTab(t)}
-                    className={`pb-3 text-[10px] whitespace-nowrap border-b-2 flex items-center gap-1.5 transition-colors ${
-                      tab === t ? 'border-brand-green text-brand-green font-medium' : 'border-transparent text-ink-500 hover:text-ink-900'
+                    key={t.key}
+                    onClick={() => selectTab(t.key)}
+                    className={`flex items-center gap-1.5 px-4 py-3 text-[10px] font-medium whitespace-nowrap border-b-2 ${
+                      tab === t.key ? 'border-brand-green text-brand-greenDark' : 'border-transparent text-ink-500'
                     }`}
                   >
-                    <TabIcon size={12} />
-                    {t}
-                    {badge > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-status-pending text-white text-[9px] flex items-center justify-center">{badge}</span>
-                    )}
+                    <TIcon size={13} /> {t.key}
                   </button>
                 )
               })}
@@ -198,88 +240,134 @@ const [toast, setToast] = useState(null)
 
             <div className="p-5">
               {tab === 'Data Preview' && (
-                <div>
-                  {detail.rows.some((r) => r.flagged) && (
-                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-md bg-status-review/10 text-status-review text-[10px] mb-4">
-                      <AlertTriangle size={13} />
-                      {detail.rows.filter((r) => r.flagged).length} rows flagged by automated validation — highlighted below
+                kpiValuesQuery.isLoading || kpiDefinitionsQuery.isLoading || sitesQuery.isLoading ? (
+                  <LoadingState label="Loading data preview…" />
+                ) : kpiValuesQuery.isError ? (
+                  <ErrorState
+                    message={kpiValuesQuery.error?.message || 'Could not load the data preview.'}
+                    onRetry={() => kpiValuesQuery.refetch()}
+                  />
+                ) : kpiValues.length === 0 ? (
+                  <div className="text-center py-10">
+                    <FileText size={28} className="text-ink-200 mx-auto mb-3" />
+                    <p className="text-xs font-medium text-ink-700 mb-1">Not available yet</p>
+                    <p className="text-[10px] text-ink-300 max-w-sm mx-auto leading-relaxed">
+                      Structured data preview appears once this version has been approved and its
+                      data extracted. You can download the original file to inspect its contents directly.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-[9px] text-ink-300 mb-3">
+                      {kpiValues.length} extracted value{kpiValues.length === 1 ? '' : 's'} — raw, as-reported figures, traced back to their exact source row.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[9px]">
+                        <thead>
+                          <tr className="text-left text-ink-500 border-b border-surface-border">
+                            <th className="font-medium py-2 pr-3">Site</th>
+                            <th className="font-medium py-2 pr-3">KPI</th>
+                            <th className="font-medium py-2 pr-3">Value</th>
+                            <th className="font-medium py-2 pr-3">Unit</th>
+                            <th className="font-medium py-2 pr-3">Details</th>
+                            <th className="font-medium py-2">Source Row</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {kpiValues.map((kv) => (
+                            <tr key={kv.public_id} className="border-b border-surface-border last:border-0">
+                              <td className="py-2.5 pr-3 text-ink-900 font-medium">
+                                {kv.site_public_id ? (siteNameByPublicId.get(kv.site_public_id) || 'Unknown site') : '—'}
+                              </td>
+                              <td className="py-2.5 pr-3 text-ink-700">{kpiDefNameByCode.get(kv.kpi_code) || kv.kpi_code}</td>
+                              <td className="py-2.5 pr-3 text-ink-900 font-medium">{kv.value}</td>
+                              <td className="py-2.5 pr-3 text-ink-500">{kv.unit}</td>
+                              <td className="py-2.5 pr-3 text-ink-500">
+                                {Object.entries(kv.attributes || {}).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(', ') || '—'}
+                              </td>
+                              <td className="py-2.5 text-ink-300">Row {kv.source_row_number}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
-                  <table className="w-full text-[8px]">
-                    <thead>
-                      <tr className="text-left text-ink-500 border-b border-surface-border">
-                        <th className="font-medium py-2 pr-2">#</th>
-                        <th className="font-medium py-2 pr-2">Dataset Name</th>
-                        <th className="font-medium py-2 pr-2">Month</th>
-                        <th className="font-medium py-2 pr-2">{detail.domainLabel}</th>
-                        <th className="font-medium py-2 pr-2">Renewable %</th>
-                        <th className="font-medium py-2">Scope 2 Method</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.rows.map((r, i) => (
-                        <tr key={i} className={`border-b border-surface-border last:border-0 ${r.flagged ? 'bg-status-review/5' : ''}`}>
-                          <td className="py-2.5 pr-2 text-ink-500">{i + 1}</td>
-                          <td className="py-2.5 pr-2 text-ink-900 font-medium">{r.site}</td>
-                          <td className="py-2.5 pr-2 text-ink-700">{r.month}</td>
-                          <td className="py-2.5 pr-2 text-ink-700">{r.value}</td>
-                          <td className="py-2.5 pr-2 text-ink-700">{r.pct}</td>
-                          <td className="py-2.5 text-ink-700">{r.method}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                  </div>
+                )
               )}
 
               {tab === 'Validation' && (
-                <div>
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    <div className="bg-status-pending/10 rounded-md p-3">
-                      <p className="text-lg font-semibold text-status-pending">{failCount}</p>
-                      <p className="text-[9px] text-status-pending">Failed Checks</p>
-                    </div>
-                    <div className="bg-status-review/10 rounded-md p-3">
-                      <p className="text-lg font-semibold text-status-review">{warnCount}</p>
-                      <p className="text-[9px] text-status-review">Warnings</p>
-                    </div>
-                    <div className="bg-status-approved/10 rounded-md p-3">
-                      <p className="text-lg font-semibold text-status-approved">{passCount}</p>
-                      <p className="text-[9px] text-status-approved">Passed</p>
-                    </div>
+                validationQuery.isLoading ? (
+                  <LoadingState label="Running validation…" />
+                ) : validationQuery.isError ? (
+                  <ErrorState
+                    message={validationQuery.error?.message || 'Could not load validation results.'}
+                    onRetry={() => validationQuery.refetch()}
+                  />
+                ) : !validationQuery.data?.is_available ? (
+                  <div className="text-center py-10">
+                    <ShieldCheck size={28} className="text-ink-200 mx-auto mb-3" />
+                    <p className="text-xs font-medium text-ink-700 mb-1">Not available yet</p>
+                    <p className="text-[10px] text-ink-300 max-w-sm mx-auto leading-relaxed">
+                      Validation results appear once this version has been approved and its data extracted.
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    {detail.validationItems.map((v, i) => {
-                      const s = severityStyle[v.severity]
-                      const SevIcon = s.icon
-                      return (
-                        <div key={i} className={`flex items-start justify-between gap-3 border rounded-md px-3 py-2.5 ${s.bg} ${s.border}`}>
-                          <div className="flex items-start gap-2">
-                            <SevIcon size={13} className={`${s.text} shrink-0 mt-0.5`} />
-                            <div>
-                              <p className="text-[10px] font-semibold text-ink-900">{v.title}</p>
-                              <p className="text-[8px] text-ink-500 mt-0.5">{v.detail}</p>
+                ) : (
+                  <div>
+                    <p className="text-[9px] text-ink-300 mb-4 leading-relaxed">
+                      Structural data-quality checks only — not a compliance, scoring, or benchmarking review.
+                    </p>
+                    {validationQuery.data.errors.length === 0 && validationQuery.data.warnings.length === 0 ? (
+                      <div className="flex items-center gap-2 text-status-approved text-xs font-medium py-4">
+                        <CheckCircle2 size={16} /> No issues found.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {validationQuery.data.errors.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-status-pending mb-2 flex items-center gap-1.5">
+                              <AlertOctagon size={13} /> Blocking Issues ({validationQuery.data.errors.length})
+                            </p>
+                            <div className="space-y-1.5">
+                              {validationQuery.data.errors.map((e, i) => (
+                                <div key={i} className="text-[10px] text-ink-700 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+                                  {e.message}
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          <span className="text-[8px] text-ink-300 whitespace-nowrap shrink-0">{v.category}</span>
-                        </div>
-                      )
-                    })}
+                        )}
+                        {validationQuery.data.warnings.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-status-review mb-2 flex items-center gap-1.5">
+                              <AlertTriangle size={13} /> Warnings ({validationQuery.data.warnings.length})
+                            </p>
+                            <div className="space-y-1.5">
+                              {validationQuery.data.warnings.map((w, i) => (
+                                <div key={i} className="text-[10px] text-ink-700 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+                                  {w.message}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )
               )}
 
               {tab === 'Required Changes' && (
                 <div>
                   <p className="text-xs font-semibold text-ink-900 mb-1">Required Changes</p>
-                  <p className="text-[8px] text-ink-500 mb-4 leading-relaxed">
-                    Define the specific corrections the submitter must complete before this dataset can be approved. This checklist will be sent to the submitter when you select "Request Changes."
-                  </p>
+                  <p className="text-[9px] text-ink-300 mb-4">Field-specific corrections requested on this dataset.</p>
+                  {commentError && <p className="text-[9px] text-status-pending mb-3">{commentError}</p>}
                   <div className="space-y-2 mb-4">
-                    {changes.map((rc, i) => (
-                      <div key={rc.id} className="flex items-start gap-3 border border-surface-border rounded-md px-3 py-2.5">
+                    {requiredChangeComments.length === 0 ? (
+                      <p className="text-[10px] text-ink-300">No required changes recorded yet.</p>
+                    ) : requiredChangeComments.map((rc, i) => (
+                      <div key={rc.public_id} className="flex items-start gap-3 border border-surface-border rounded-md px-3 py-2.5">
                         <span className="w-4 h-4 rounded-full bg-ink-100 text-ink-700 text-[8px] font-medium flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                        <span className="text-[10px] text-ink-700">{rc.text}</span>
+                        <span className="text-[10px] text-ink-700">{rc.body}</span>
                       </div>
                     ))}
                   </div>
@@ -287,11 +375,11 @@ const [toast, setToast] = useState(null)
                     <input
                       value={newChange}
                       onChange={(e) => setNewChange(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && addRequiredChange()}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddComment('field', newChange, setNewChange)}
                       placeholder="Describe a required correction clearly......."
                       className="flex-1 px-3 py-2 rounded-md border border-surface-border text-[10px] placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20"
                     />
-                    <Button size="sm" onClick={addRequiredChange}>Send</Button>
+                    <Button size="sm" onClick={() => handleAddComment('field', newChange, setNewChange)}>Send</Button>
                   </div>
                 </div>
               )}
@@ -303,26 +391,24 @@ const [toast, setToast] = useState(null)
                     <thead>
                       <tr className="text-left text-ink-500 border-b border-surface-border">
                         <th className="font-medium py-2 pr-2">Version</th>
-                        <th className="font-medium py-2 pr-2">Uploaded By</th>
-                        <th className="font-medium py-2 pr-2">Date & Time</th>
-                        <th className="font-medium py-2 pr-2">Review Outcome</th>
-                        <th className="font-medium py-2">Notes</th>
+                        <th className="font-medium py-2 pr-2">Status</th>
+                        <th className="font-medium py-2 pr-2">Submitted At</th>
+                        <th className="font-medium py-2">Decision Summary</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.versionHistory.map((v, i) => (
-                        <tr key={i} className="border-b border-surface-border last:border-0">
-                          <td className="py-2.5 pr-2 text-ink-900 font-medium">{v.version}</td>
-                          <td className="py-2.5 pr-2 text-ink-700">{v.uploadedBy}</td>
-                          <td className="py-2.5 pr-2 text-ink-500">{v.date}</td>
-                          <td className="py-2.5 pr-2 text-status-review font-medium">{v.outcome}</td>
-                          <td className="py-2.5 text-ink-500">{v.notes}</td>
+                      {versions.slice().sort((a, b) => a.version_number - b.version_number).map((v) => (
+                        <tr key={v.public_id} className="border-b border-surface-border last:border-0">
+                          <td className="py-2.5 pr-2 text-ink-900 font-medium">v{v.version_number}</td>
+                          <td className="py-2.5 pr-2 text-status-review font-medium">{v.status}</td>
+                          <td className="py-2.5 pr-2 text-ink-500">{v.submitted_at ? new Date(v.submitted_at).toLocaleString() : '—'}</td>
+                          <td className="py-2.5 text-ink-500">{v.review_decision_summary ? `${v.review_decision_summary.status} by ${v.review_decision_summary.reviewer_public_id}` : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   <p className="text-[8px] text-ink-300 mt-3 leading-relaxed">
-                    All versions are retained for audit purposes. When a corrected version is submitted by the client, it will appear here alongside this initial version and can be compared side-by-side.
+                    All versions are retained for audit purposes.
                   </p>
                 </div>
               )}
@@ -332,80 +418,107 @@ const [toast, setToast] = useState(null)
 
         {/* Right sidebar */}
         <div className="space-y-4">
-         <div className="bg-white border border-surface-border rounded-lg p-5">
+          <div className="bg-white border border-surface-border rounded-lg p-5">
             <p className="text-xs font-semibold text-ink-900 mb-3">Review Decision</p>
-            <div className="space-y-2 mb-3">
-              {DECISIONS.map((d) => {
-                const DIcon = d.icon
-                const selected = selectedDecision === d.key
-                const desc = d.key === 'Changes Requested' ? `${changes.length} corrections required` : d.desc
-                return (
-                  <button
-                    key={d.key}
-                    onClick={() => { setSelectedDecision(d.key); setDecisionMade(false) }}
-                    className={`w-full text-left px-3 py-2.5 rounded-md border-2 transition-all ${d.bg} ${
-                      selected ? d.border : 'border-transparent'
-                    }`}
-                  >
-                    <p className={`text-[10px] font-semibold flex items-center gap-1.5 text-ink-900`}>
-                      <DIcon size={13} className={d.text} /> {d.label}
-                    </p>
-                    <p className={`text-[8px] mt-0.5 ${d.text}`}>{desc}</p>
-                  </button>
-                )
-              })}
-            </div>
 
-            {comments.length > 0 && (
-              <div className="space-y-2 mb-3 max-h-32 overflow-y-auto">
-                {comments.map((c, i) => (
-                  <div key={i} className="border border-surface-border rounded-md px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-medium text-ink-900">{c.author}</span>
-                      <span className="text-[8px] text-ink-300">{c.time}</span>
-                    </div>
-                    <p className="text-[9px] text-ink-700 mt-0.5">{c.text}</p>
-                  </div>
-                ))}
+            {decisionError && (
+              <p className="text-[9px] text-status-pending bg-red-50 border border-red-100 rounded-md px-2.5 py-2 mb-3">{decisionError}</p>
+            )}
+
+            {!currentVersion ? (
+              <p className="text-[10px] text-ink-300">No version found for this dataset.</p>
+            ) : currentVersion.status === 'draft' ? (
+              <p className="text-[10px] text-ink-300">This dataset has not been submitted for review yet.</p>
+            ) : currentVersion.status === 'submitted' ? (
+              <Button className="w-full" onClick={handleStartReview} disabled={assignReview.isPending}>
+                {assignReview.isPending ? 'Starting…' : 'Start Review'}
+              </Button>
+            ) : currentVersion.status === 'under_review' && isMyPendingReview ? (
+              <>
+                <div className="space-y-2 mb-3">
+                  {DECISIONS.map((d) => {
+                    const DIcon = d.icon
+                    const selected = selectedDecision === d.key
+                    return (
+                      <button
+                        key={d.key}
+                        onClick={() => setSelectedDecision(d.key)}
+                        className={`w-full text-left px-3 py-2.5 rounded-md border-2 transition-all ${d.bg} ${selected ? d.border : 'border-transparent'}`}
+                      >
+                        <p className="text-[10px] font-semibold flex items-center gap-1.5 text-ink-900">
+                          <DIcon size={13} className={d.text} /> {d.label}
+                        </p>
+                        <p className={`text-[8px] mt-0.5 ${d.text}`}>{d.desc}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+                <textarea
+                  value={decisionNote}
+                  onChange={(e) => setDecisionNote(e.target.value)}
+                  placeholder="Decision note (required)....."
+                  rows={2}
+                  className="w-full px-3 py-2 rounded-md border border-surface-border text-[10px] placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20 mb-3"
+                />
+                <Button className="w-full" onClick={submitDecision} disabled={!selectedDecision || decideReview.isPending}>
+                  {decideReview.isPending ? 'Submitting…' : 'Submit Review'}
+                </Button>
+              </>
+            ) : currentVersion.status === 'under_review' ? (
+              <p className="text-[10px] text-ink-300">
+                Currently under review{pendingReview ? ` by user #${pendingReview.reviewer_user_id}` : ''}.
+              </p>
+            ) : (
+              <div>
+                <p className="text-[10px] font-medium text-ink-900 mb-1 capitalize">{currentVersion.status.replace('_', ' ')}</p>
+                {currentVersion.review_decision_summary && (
+                  <p className="text-[9px] text-ink-500">
+                    Decided by {currentVersion.review_decision_summary.reviewer_public_id} on{' '}
+                    {new Date(currentVersion.review_decision_summary.decided_at).toLocaleDateString()}.
+                    {currentVersion.review_decision_summary.note_excerpt && ` "${currentVersion.review_decision_summary.note_excerpt}"`}
+                  </p>
+                )}
               </div>
             )}
 
-            <textarea
-              value={decisionNote}
-              onChange={(e) => setDecisionNote(e.target.value)}
-              placeholder="Add a comment or reply....."
-              rows={2}
-              className="w-full px-3 py-2 rounded-md border border-surface-border text-[10px] placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20 mb-3"
-            />
-            {toast && (
-              <p className="text-[9px] text-status-approved mb-2 flex items-center gap-1.5">
-                <CheckCircle size={11} /> {toast}
-              </p>
-            )}
-            <Button className="w-full" onClick={submitDecision} disabled={!selectedDecision || decisionMade}>
-              {decisionMade ? 'Decision Submitted ✓' : 'Submit Review'}
-            </Button>
-          </div> 
+            <div className="mt-4 pt-4 border-t border-surface-border">
+              <p className="text-[9px] font-medium text-ink-700 mb-2">Comments</p>
+              {commentsQuery.isLoading ? (
+                <p className="text-[9px] text-ink-300">Loading…</p>
+              ) : generalComments.length === 0 ? (
+                <p className="text-[9px] text-ink-300 mb-2">No comments yet.</p>
+              ) : (
+                <div className="space-y-2 mb-3 max-h-32 overflow-y-auto">
+                  {generalComments.map((c) => (
+                    <div key={c.public_id} className="border border-surface-border rounded-md px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-medium text-ink-900">User #{c.author_user_id}</span>
+                        <span className="text-[8px] text-ink-300">{new Date(c.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-[9px] text-ink-700 mt-0.5">{c.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Add a comment....."
+                rows={2}
+                className="w-full px-3 py-2 rounded-md border border-surface-border text-[10px] placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20 mb-2"
+              />
+              <Button size="sm" className="w-full" onClick={() => handleAddComment('general', newComment, setNewComment)} disabled={createComment.isPending}>
+                {createComment.isPending ? 'Adding…' : 'Add Comment'}
+              </Button>
+            </div>
+          </div>
 
           <div className="bg-white border border-surface-border rounded-lg p-5">
             <p className="text-xs font-semibold text-ink-900 mb-3">Supporting Documents</p>
-            <div className="space-y-2">
-              {detail.supportingDocuments.map((doc, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 rounded-md border border-surface-border">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText size={13} className="text-ink-300 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[9px] text-ink-900 truncate">{doc.name}</p>
-                      <p className="text-[8px] text-ink-300">{doc.size}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-ink-300 shrink-0">
-                    <button className="hover:text-ink-700"><Eye size={12} /></button>
-                    <button className="hover:text-ink-700"><Download size={12} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="text-[9px] text-ink-300">
+              Not available yet — listing individual files attached to this version is coming in a
+              later phase. Files were uploaded and are stored securely.
+            </p>
           </div>
 
           <div className="bg-white border border-surface-border rounded-lg p-5">

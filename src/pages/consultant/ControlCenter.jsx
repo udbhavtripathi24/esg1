@@ -140,6 +140,11 @@ export default function ControlCenter() {
     // (e.g. reporting "previous role could not be removed" when it actually
     // WAS removed and the new assignment failed instead). Fixed per review.
     let priorRoleRemoved = false
+    // Tracks WHICH step actually threw, so a genuine DELETE failure (not the
+    // tolerated-404 case) gets its own accurate message (CASE C) distinct
+    // from a POST failure after a successful removal (CASE D) — both used
+    // to fall through the same generic status-based branches below.
+    let failedStep = null // 'remove' | 'assign' | null
     try {
       // Best-effort remove of the role-on-record if it differs from the new
       // one. Tolerate 404 — the display hint may be stale/never actually
@@ -153,20 +158,37 @@ export default function ControlCenter() {
           await removeRoleMutation.mutateAsync({ user_id: userId, role_code: priorRole, company_id: null })
           priorRoleRemoved = true
         } catch (err) {
-          if (err.status !== 404) throw err // real failure — stop before assigning the new role
+          if (err.status !== 404) {
+            failedStep = 'remove' // CASE C — genuine removal failure, not tolerated
+            throw err // stop before assigning the new role
+          }
           // 404 tolerated (nothing to remove) — priorRoleRemoved stays false,
-          // which is accurate: no role was actually removed.
+          // which is accurate: no role was actually removed. This is NOT a
+          // failure, so failedStep stays null and execution continues to POST.
         }
       }
+      failedStep = 'assign' // if the POST below throws, CASE D applies
       await assignRole.mutateAsync({ user_id: userId, role_code: newRoleCode, company_id: null })
       // Keep the display-hint in sync using the existing, already-approved
       // User Directory update path — not a new capability.
       await updateUserDisplayRole.mutateAsync({ id: userId, body: { role: newRoleCode } })
       setShowAssignRole(false)
     } catch (err) {
-      // Prefix every branch with an accurate note about the user's actual
-      // current state whenever the prior role was genuinely removed before
-      // this failure occurred — the one thing the old messaging got wrong.
+      if (failedStep === 'remove') {
+        // CASE C: the DELETE itself genuinely failed (not the tolerated 404).
+        // Must explicitly say the previous role could not be removed, and
+        // must NOT claim the new role was assigned — it never was attempted.
+        if (err.isNetworkError) {
+          setAssignRoleError('Could not remove the previous role — could not reach the server. The new role was NOT assigned. Please retry.')
+        } else {
+          setAssignRoleError(`Could not remove the previous role (${err.message || 'unknown error'}). The new role was NOT assigned. Please retry.`)
+        }
+        return
+      }
+
+      // failedStep === 'assign': the POST failed. If priorRoleRemoved is
+      // true, this is CASE D — the user may now hold NO role — and every
+      // branch below must say so explicitly, not just the generic ones.
       const removalNote = priorRoleRemoved
         ? `The previous role (${priorRole}) was already removed. This user currently has NO RBAC role. `
         : ''
