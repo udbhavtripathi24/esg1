@@ -366,25 +366,6 @@ export const emissionFactors = [
   { id: 'ef8', name: 'Diesel Combustion', category: 'Emission Factor', value: 2.68, unit: 'kgCO2e/L', source: 'DEFRA', region: 'Global', effYear: 2025, priority: 'Active', effectiveDate: '01-04-2025', expiryDate: '31-03-2026', description: 'Stationary combustion emissions factor for diesel fuel.' },
 ]
 
-export const factorFilters = {
-  categories: ['All Categories', 'Water', 'Waste', 'Energy', 'Emission Factor'],
-  sources: ['All Sources', 'Local Authority', 'EPA', 'DEFRA', 'CEA'],
-  years: ['All Years', '2026', '2025'],
-}
-
-export const kpiTeamMembers = ['Ananya Nair', 'Priya Thomas', 'Rahul Menon']
-
-export const kpiRoleAssignments = [
-  { id: 'kra1', domain: 'Energy', dataType: 'Quantitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra2', domain: 'Energy', dataType: 'Qualitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra3', domain: 'Water', dataType: 'Quantitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra4', domain: 'Water', dataType: 'Qualitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra5', domain: 'Waste Management', dataType: 'Quantitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra6', domain: 'Waste Management', dataType: 'Qualitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra7', domain: 'Greenhouse Gas Emissions', dataType: 'Quantitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-  { id: 'kra8', domain: 'Greenhouse Gas Emissions', dataType: 'Qualitative', uploaders: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'], reviewers: ['Ananya Nair', 'Priya Thomas', 'Rahul Menon'] },
-]
-
 export const auditLogs = [
   { event: 'Login', user: 'emma.r@unilever.com', message: 'User logged in successfully', recordId: 'LOG-000131', timestamp: '15 Jul 2025, 09:02', ip: '192.168.1.25' },
   { event: 'Dataset Updated', user: 'emma.r@unilever.com', message: 'Energy dataset updated — FY2024 Q2', recordId: 'KPI-204', timestamp: '15 Jul 2025, 09:02', ip: '192.168.1.40' },
@@ -397,46 +378,6 @@ export const logFilters = {
   time: ['All Time', 'Today', 'Last 7 days', 'Last 30 days'],
   events: ['All Events', 'Login', 'Logout', 'Dataset Updated', 'Approval', 'User Created'],
 }
-
-export const connectedSystems = [
-  { domain: 'HR', system: 'Workday HCM, Oracle HCM', status: 'Connected', lastSync: '15 Jul 2025, 09:00' },
-  { domain: 'Energy', system: 'Siemens EnergyIP, Schneider EcoStruxere', status: 'Connected', lastSync: '15 Jul 2025, 09:00' },
-  { domain: 'Water', system: 'Custom API', status: 'Error', lastSync: '15 Jul 2025, 09:00' },
-  { domain: 'Waste', system: 'Veolia WIMS', status: 'Disconnected', lastSync: '15 Jul 2025, 09:00' },
-  { domain: 'Supply Chain', system: 'SAP Ariba', status: 'Connected', lastSync: '15 Jul 2025, 09:00' },
-  { domain: 'Finance', system: 'Oracle Financials', status: 'Disconnected', lastSync: '15 Jul 2025, 09:00' },
-]
-
-// Client company's own internal admin console (distinct from Deloitte's Control Center)
-export const clientEmployeeDirectory = [
-  { id: 'ce1', name: 'John Doe', email: 'abc@abc.com', department: 'Sustainability', role: 'Administrator', status: 'Active' },
-  { id: 'ce2', name: 'Sarah Jacob', email: 'abc@abc.com', department: 'Operations', role: 'Reviewer', status: 'Active' },
-  { id: 'ce3', name: 'James Whitehall', email: 'abc@abc.com', department: 'Finance', role: 'Approver', status: 'Active' },
-  { id: 'ce4', name: 'John Doe', email: 'abc@abc.com', department: 'Facilities', role: 'Uploader', status: 'Inactive' },
-  { id: 'ce5', name: 'Jane Doe', email: 'abc@abc.com', department: 'Operations', role: 'Approver', status: 'Active' },
-  { id: 'ce6', name: 'Jacob John', email: 'abc@abc.com', department: 'Sustainability', role: 'Approver', status: 'Active' },
-  { id: 'ce7', name: 'Susan Sebastian', email: 'abc@abc.com', department: 'Sustainability', role: 'Approver', status: 'Active' },
-  { id: 'ce8', name: 'Susan Sebastian', email: 'abc@abc.com', department: 'Sustainability', role: 'Approver', status: 'Active' },
-  { id: 'ce9', name: 'Susan Sebastian', email: 'abc@abc.com', department: 'Sustainability', role: 'Approver', status: 'Active' },
-]
-
-export const clientRoleOptions = ['Administrator', 'Reviewer', 'Uploader', 'Approver']
-
-export const esgTargets = [
-  { id: 't1', name: 'Carbon Emissions', target: '100,000 MWh', current: '7.4 ktCO2e', progress: 55, status: 'On Track' },
-  { id: 't2', name: 'Energy Reduction', target: '100,000 MWh', current: '127,420 MWh', progress: 61, status: 'On Track' },
-  { id: 't3', name: 'Water Usage', target: '1,800 ML', current: '2,241 ML', progress: 49, status: 'At Risk' },
-  { id: 't4', name: 'Renewable Energy Share', target: '40%', current: '28%', progress: 70, status: 'On Track' },
-]
-
-export const approvalHistory = [
-  { dataset: 'Q1 Energy Dataset', approvedBy: 'Alexandra Chen', date: 'Jun 15, 2026', framework: 'GRI', status: 'Approved', comments: 'Compliant' },
-  { dataset: 'Q1 Water Data — Sites A/B', approvedBy: 'James Thornton', date: 'Jun 15, 2026', framework: 'AWS', status: 'Approved', comments: 'Minor notes' },
-  { dataset: 'Board Governance Report', approvedBy: 'Priya Nair', date: 'Jun 15, 2026', framework: 'SASB', status: 'Approved', comments: 'No comments' },
-  { dataset: 'Waste Management Survey', approvedBy: 'Alexandra Chen', date: 'Jun 15, 2026', framework: 'GRI', status: 'Rejected', comments: 'Incomplete data' },
-  { dataset: 'Scope 2 Emissions — Q2', approvedBy: 'James Thornton', date: 'Jun 15, 2026', framework: 'BRSR', status: 'Under Review', comments: '-' },
-  { dataset: 'Supply Chain Assessment', approvedBy: 'Priya Nair', date: 'Jun 15, 2026', framework: 'SASB', status: 'Pending', comments: '-' },
-]
 
 
 export const systemLogs = [
