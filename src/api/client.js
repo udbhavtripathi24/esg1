@@ -16,6 +16,8 @@
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
+export const API_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, '')
+
 // ---- Token access -----------------------------------------------------
 // A plain module-level variable, NOT React state, so this file stays
 // framework-independent.

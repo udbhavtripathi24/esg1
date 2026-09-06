@@ -64,3 +64,16 @@ export function updateUser(id, body) {
 export function deactivateUser(id) {
   return apiClient.delete(`/users/${id}`)
 }
+
+/**
+ * Admin-triggered password reset -- generates and sends a brand new
+ * password (the old one can never be recovered, only its hash is ever
+ * stored). Different from the client's own self-service change-password
+ * flow, which requires knowing the current password.
+ * @param {number} id
+ * @param {string} newPassword
+ * @returns {Promise<void>} 204 on success
+ */
+export function resetUserPassword(id, newPassword) {
+  return apiClient.post(`/users/${id}/reset-password`, { new_password: newPassword })
+}

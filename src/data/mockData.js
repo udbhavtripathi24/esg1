@@ -169,53 +169,6 @@ export const renewableEnergyAdoption = {
     { org: 'Peer D — bgh holdings', score: 80, rank: '—', status: 'Average' },
   ],
 }
-export const reportingFilters = {
-  years: ['2026', '2025', '2024'],
-  periods: ['Q1 2026', 'Q2 2026', 'Q3 2026', 'Q4 2026'],
-  businessUnits: ['All Business Units', 'Manufacturing', 'Supply Chain', 'Corporate', 'Energy', 'Logistics'],
-  legalEntities: ['All Legal Entities', 'ABC Holdings Pvt. Ltd.', 'ABC Energy Corp'],
-  statuses: ['All Statuses', 'Ready', 'In Progress'],
-}
-
-export const frameworkReadiness = [
-  {
-    code: 'AWS', name: 'Alliance for Water Stewardship', pct: 96, status: 'Ready',
-    badge: 'bg-purple-100 text-purple-700', bar: '#8B5CF6',
-    period: 'Q2 2026', lastGenerated: 'Jun 20, 2026',
-    readiness: 'Ready to Generate', readinessColor: 'text-status-approved',
-    canGenerate: true,
-  },
-  {
-    code: 'SASB', name: 'Sustainability Accounting Standards Board', pct: 56, status: 'In Progress',
-    badge: 'bg-red-100 text-red-600', bar: '#DC2626',
-    period: 'Q2 2026', lastGenerated: 'Jun 20, 2026',
-    readiness: 'Awaiting data — 55% complete', readinessColor: 'text-status-pending',
-    canGenerate: false,
-  },
-  {
-    code: 'GRI', name: 'Global Reporting Initiative', pct: 72, status: 'In Progress',
-    badge: 'bg-blue-100 text-blue-700', bar: '#2563EB',
-    period: 'Q2 2026', lastGenerated: 'Jun 20, 2026',
-    readiness: 'Awaiting verification', readinessColor: 'text-blue-600',
-    canGenerate: false,
-  },
-  {
-    code: 'BRSR', name: 'Business Responsibility & Sustainability Report', pct: 35, status: 'In Progress',
-    badge: 'bg-amber-100 text-amber-700', bar: '#D98A1F',
-    period: 'Q2 2026', lastGenerated: 'Jun 20, 2026',
-    readiness: 'Insufficient data', readinessColor: 'text-amber-600',
-    canGenerate: false,
-  },
-]
-
-export const generatedReportsList = [
-  { dataset: 'GRI Sustainability Report — Q2 2026', framework: 'GRI', publishedBy: 'Daniel Walsh', period: 'Q2 2026', date: 'Jul 3, 2026', version: 'v2.1', status: 'Published' },
-  { dataset: 'GRI Sustainability Report — Q2 2026', framework: 'AWS', publishedBy: 'Daniel Walsh', period: 'Q2 2026', date: 'Jul 3, 2026', version: 'v2.1', status: 'Not Published' },
-  { dataset: 'GRI Sustainability Report — Q2 2026', framework: 'SASB', publishedBy: 'Daniel Walsh', period: 'Q2 2026', date: 'Jul 3, 2026', version: 'v2.1', status: 'Published' },
-  { dataset: 'GRI Sustainability Report — Q2 2026', framework: 'GRI', publishedBy: 'Daniel Walsh', period: 'Q2 2026', date: 'Jul 3, 2026', version: 'v2.1', status: 'Published' },
-  { dataset: 'GRI Sustainability Report — Q2 2026', framework: 'BRSR', publishedBy: 'Daniel Walsh', period: 'Q2 2026', date: 'Jul 3, 2026', version: 'v2.1', status: 'Published' },
-]
-
 export const reportingFrameworksList = [
   { code: 'GRI', name: 'Global Reporting Initiative', category: 'Non-Regulatory' },
   { code: 'SASB', name: 'Sustainability Accounting Standards Board', category: 'Investor/Lender' },

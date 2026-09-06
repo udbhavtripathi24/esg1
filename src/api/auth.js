@@ -12,6 +12,17 @@
 import { BASE_URL, parseResponse, apiClient } from './client.js'
 
 /**
+ * @param {string} currentPassword
+ * @param {string} newPassword
+ * @returns {Promise<void>} resolves with no content on success (204)
+ * @throws {ApiError} 403 if currentPassword is wrong, 422 if newPassword
+ *   is too short, 401 if not authenticated
+ */
+export function changeOwnPassword(currentPassword, newPassword) {
+  return apiClient.post('/auth/me/change-password', { current_password: currentPassword, new_password: newPassword })
+}
+
+/**
  * @param {string} email
  * @param {string} password
  * @returns {Promise<{access_token: string, token_type: string, user: object}>}

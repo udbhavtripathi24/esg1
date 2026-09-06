@@ -3,7 +3,7 @@
  * pattern as every other module in this project.
  */
 import { useQuery } from '@tanstack/react-query'
-import { getKpiValues, getKpiDefinitions, getKpiValidation } from '../api/kpiValues.js'
+import { getKpiValues, getKpiDefinitions, getKpiValidation, getDataPreview } from '../api/kpiValues.js'
 
 export function useKpiValues(params = {}, options = {}) {
   return useQuery({
@@ -26,6 +26,18 @@ export function useKpiValidation(datasetPublicId, versionPublicId, options = {})
   return useQuery({
     queryKey: ['kpi-validation', datasetPublicId, versionPublicId],
     queryFn: () => getKpiValidation(datasetPublicId, versionPublicId),
+    enabled: options.enabled !== undefined ? options.enabled : !!(datasetPublicId && versionPublicId),
+  })
+}
+
+/** Real preview of the actual uploaded file -- available at ANY point
+ * in the dataset version's lifecycle, unlike useKpiValidation above
+ * which correctly requires extraction (and therefore approval) first.
+ * This is what lets a reviewer see real data before deciding. */
+export function useDataPreview(datasetPublicId, versionPublicId, options = {}) {
+  return useQuery({
+    queryKey: ['data-preview', datasetPublicId, versionPublicId],
+    queryFn: () => getDataPreview(datasetPublicId, versionPublicId),
     enabled: options.enabled !== undefined ? options.enabled : !!(datasetPublicId && versionPublicId),
   })
 }

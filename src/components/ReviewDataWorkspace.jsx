@@ -6,9 +6,9 @@ import {
 import { Button } from './ui.jsx'
 import LoadingState from './LoadingState.jsx'
 import ErrorState from './ErrorState.jsx'
-import { useDatasetVersions, useSites } from '../hooks/useDatasets.js'
+import { useDatasetVersions } from '../hooks/useDatasets.js'
 import { useReviews, useAssignReview, useDecideReview, useComments, useCreateComment } from '../hooks/useReviews.js'
-import { useKpiValues, useKpiDefinitions, useKpiValidation } from '../hooks/useKpiValues.js'
+import { useKpiValidation, useDataPreview } from '../hooks/useKpiValues.js'
 
 const TABS = [
   { key: 'Data Preview', icon: FileText },
@@ -76,33 +76,16 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
   const generalComments = comments.filter((c) => c.kind !== 'field')
   const requiredChangeComments = comments.filter((c) => c.kind === 'field')
 
-  // Data Preview + Validation, backed by Layer 1. Both are correctly
-  // empty/unavailable until the version has actually been approved and
-  // extracted — kpi_values only ever get created on approval (see
-  // app/services/kpi_extraction_service.py), so no extra frontend
-  // gating is needed beyond what the backend already enforces.
-  const kpiValuesQuery = useKpiValues(
-    { dataset_version_public_id: currentVersion?.public_id, page_size: 200 },
-    { enabled: !!currentVersion }
-  )
-  const kpiValues = kpiValuesQuery.data?.items || []
-
-  const kpiDefinitionsQuery = useKpiDefinitions()
-  const kpiDefNameByCode = useMemo(() => {
-    const map = new Map()
-    for (const d of kpiDefinitionsQuery.data || []) map.set(d.code, d.display_name)
-    return map
-  }, [kpiDefinitionsQuery.data])
-
-  // Site names resolved via the existing real sites endpoint, scoped to
-  // this dataset's own company — same Map-resolution pattern used
-  // throughout this project (no N+1, one query for the whole page).
-  const sitesQuery = useSites({ company_id: dataset.company_id, page_size: 100 })
-  const siteNameByPublicId = useMemo(() => {
-    const map = new Map()
-    for (const s of sitesQuery.data?.items || []) map.set(s.public_id, s.name)
-    return map
-  }, [sitesQuery.data])
+  // Data Preview: real, and available BEFORE any review decision --
+  // reads the actual uploaded file directly, independent of approval
+  // status. This replaces an earlier version that incorrectly reused
+  // Layer 1's post-approval KpiValue rows for this tab, which meant a
+  // reviewer could not see any real data until AFTER they had already
+  // approved a submission -- a genuine gap found during manual
+  // testing, now fixed. Validation (below) correctly remains tied to
+  // KpiValue, since validating requires the real extracted values.
+  const dataPreviewQuery = useDataPreview(dataset.public_id, currentVersion?.public_id, { enabled: !!currentVersion })
+  const previewRows = dataPreviewQuery.data?.rows || []
 
   const validationQuery = useKpiValidation(dataset.public_id, currentVersion?.public_id, { enabled: !!currentVersion })
 
@@ -240,26 +223,26 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
 
             <div className="p-5">
               {tab === 'Data Preview' && (
-                kpiValuesQuery.isLoading || kpiDefinitionsQuery.isLoading || sitesQuery.isLoading ? (
+                dataPreviewQuery.isLoading ? (
                   <LoadingState label="Loading data preview…" />
-                ) : kpiValuesQuery.isError ? (
+                ) : dataPreviewQuery.isError ? (
                   <ErrorState
-                    message={kpiValuesQuery.error?.message || 'Could not load the data preview.'}
-                    onRetry={() => kpiValuesQuery.refetch()}
+                    message={dataPreviewQuery.error?.message || 'Could not load the data preview.'}
+                    onRetry={() => dataPreviewQuery.refetch()}
                   />
-                ) : kpiValues.length === 0 ? (
+                ) : previewRows.length === 0 ? (
                   <div className="text-center py-10">
                     <FileText size={28} className="text-ink-200 mx-auto mb-3" />
-                    <p className="text-xs font-medium text-ink-700 mb-1">Not available yet</p>
+                    <p className="text-xs font-medium text-ink-700 mb-1">No data found in the uploaded file</p>
                     <p className="text-[10px] text-ink-300 max-w-sm mx-auto leading-relaxed">
-                      Structured data preview appears once this version has been approved and its
-                      data extracted. You can download the original file to inspect its contents directly.
+                      The uploaded file appears to contain no recognizable rows for this upload type.
                     </p>
                   </div>
                 ) : (
                   <div>
                     <p className="text-[9px] text-ink-300 mb-3">
-                      {kpiValues.length} extracted value{kpiValues.length === 1 ? '' : 's'} — raw, as-reported figures, traced back to their exact source row.
+                      {previewRows.length} row{previewRows.length === 1 ? '' : 's'} found in the actual uploaded file — shown exactly as reported, before any review decision.
+                      {dataPreviewQuery.data.skipped_count > 0 && ` ${dataPreviewQuery.data.skipped_count} row(s) could not be parsed and were skipped.`}
                     </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-[9px]">
@@ -274,18 +257,18 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
                           </tr>
                         </thead>
                         <tbody>
-                          {kpiValues.map((kv) => (
-                            <tr key={kv.public_id} className="border-b border-surface-border last:border-0">
+                          {previewRows.map((row) => (
+                            <tr key={`${row.row_number}-${row.kpi_code}`} className="border-b border-surface-border last:border-0">
                               <td className="py-2.5 pr-3 text-ink-900 font-medium">
-                                {kv.site_public_id ? (siteNameByPublicId.get(kv.site_public_id) || 'Unknown site') : '—'}
+                                {row.site_name || (row.site_text ? `Unresolved: "${row.site_text}"` : '—')}
                               </td>
-                              <td className="py-2.5 pr-3 text-ink-700">{kpiDefNameByCode.get(kv.kpi_code) || kv.kpi_code}</td>
-                              <td className="py-2.5 pr-3 text-ink-900 font-medium">{kv.value}</td>
-                              <td className="py-2.5 pr-3 text-ink-500">{kv.unit}</td>
+                              <td className="py-2.5 pr-3 text-ink-700">{row.kpi_display_name}</td>
+                              <td className={`py-2.5 pr-3 font-medium ${row.value < 0 ? 'text-red-600' : 'text-ink-900'}`}>{row.value}</td>
+                              <td className="py-2.5 pr-3 text-ink-500">{row.unit}</td>
                               <td className="py-2.5 pr-3 text-ink-500">
-                                {Object.entries(kv.attributes || {}).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(', ') || '—'}
+                                {Object.entries(row.attributes || {}).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(', ') || '—'}
                               </td>
-                              <td className="py-2.5 text-ink-300">Row {kv.source_row_number}</td>
+                              <td className="py-2.5 text-ink-300">Row {row.row_number} ({row.source_filename})</td>
                             </tr>
                           ))}
                         </tbody>

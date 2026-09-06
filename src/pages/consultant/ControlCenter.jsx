@@ -6,10 +6,11 @@ import { Button, Avatar, EmptyState, Select } from '../../components/ui.jsx'
 import LoadingState from '../../components/LoadingState.jsx'
 import ErrorState from '../../components/ErrorState.jsx'
 import AddUserModal from './AddUserModal.jsx'
+import CreateClientUserModal from './CreateClientUserModal.jsx'
 import AssignConsultantModal from './AssignConsultantModal.jsx'
 import AssignRbacRoleModal from './AssignRbacRoleModal.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { useCompanies } from '../../hooks/useCompanies.js'
+import { useCompanies, useUpdateCompany } from '../../hooks/useCompanies.js'
 import { useUsers, useCreateUser, useDeactivateUser, useUpdateUser } from '../../hooks/useUsers.js'
 import { useConsultantAssignments, useCreateConsultantAssignment, useUpdateConsultantAssignment, useAssignRole, useRemoveRole } from '../../hooks/useAssignments.js'
 import { roleOptions, auditLogs, logFilters } from '../../data/mockData'
@@ -299,6 +300,33 @@ export default function ControlCenter() {
     }
   }
 
+  const [showCreateClientUser, setShowCreateClientUser] = useState(false)
+  const [createClientUserError, setCreateClientUserError] = useState(null)
+
+  async function handleCreateClientUser(payload) {
+    // payload is already in POST /users' exact expected shape --
+    // constructed directly by CreateClientUserModal itself, unlike
+    // handleAddUser above which needs to translate a display-name role
+    // into a role_code. Client roles ARE already role codes.
+    setCreateClientUserError(null)
+    try {
+      await createUser.mutateAsync(payload)
+    } catch (err) {
+      if (err.status === 422 && err.field === 'email') {
+        setCreateClientUserError('A user with this email already exists.')
+      } else if (err.status === 422 && err.field === 'role_code') {
+        setCreateClientUserError('Unrecognized role. Please pick a valid role and try again.')
+      } else if (err.status === 403) {
+        setCreateClientUserError('You do not have permission to create a user for this company.')
+      } else if (err.isNetworkError) {
+        setCreateClientUserError('Could not reach the server. Check your connection and try again.')
+      } else {
+        setCreateClientUserError(err.message || 'Something went wrong while creating the user.')
+      }
+      throw err
+    }
+  }
+
   const [deactivateTargetId, setDeactivateTargetId] = useState(null)
   const [deactivateError, setDeactivateError] = useState(null)
 
@@ -409,6 +437,19 @@ export default function ControlCenter() {
           error={companiesQuery.error}
           onRetry={() => companiesQuery.refetch()}
           canManageCompanies={hasPermission('company:manage')}
+          canManageUsers={hasPermission('user:manage')}
+          onCreateClientUser={() => setShowCreateClientUser(true)}
+        />
+      )}
+
+      {showCreateClientUser && selectedClient && (
+        <CreateClientUserModal
+          companyId={selectedClient.id}
+          companyName={selectedClient.name}
+          onClose={() => { setShowCreateClientUser(false); setCreateClientUserError(null) }}
+          onCreate={handleCreateClientUser}
+          isSubmitting={createUser.isPending}
+          submitError={createClientUserError}
         />
       )}
 
@@ -795,10 +836,77 @@ function ConfirmRemoveAssignmentDialog({ name, onCancel, onConfirm, isSubmitting
   )
 }
 
+/** One real table row, with real Approve/Reject actions for a Pending
+ * company. A separate component (not inline in .map()) specifically so
+ * useUpdateCompany -- which binds to one company id -- can be called
+ * safely per row, respecting the Rules of Hooks. Calls the exact same
+ * real PATCH /companies/{id} endpoint already used elsewhere; no new
+ * backend endpoint was needed for this. */
+/** Real, editable plan selector for the selected client's detail panel.
+ * A separate component (like ClientPoolRow above) specifically so
+ * useUpdateCompany can be called safely, bound to whichever company is
+ * currently selected. Calls the exact same real PATCH /companies/{id}
+ * endpoint already used for Approve/Reject -- CompanyUpdate already
+ * supports a plan field, so no backend change was needed for this. */
+function PlanSelector({ company }) {
+  const updateCompany = useUpdateCompany(company.id)
+  return (
+    <select
+      value={company.plan}
+      onChange={(e) => updateCompany.mutate({ plan: e.target.value })}
+      disabled={updateCompany.isPending}
+      className="text-[10px] border border-surface-border rounded-md px-2 py-1 text-ink-900 bg-white"
+    >
+      <option value="Basic">Basic</option>
+      <option value="Professional">Professional</option>
+      <option value="Enterprise">Enterprise</option>
+    </select>
+  )
+}
+
+function ClientPoolRow({ company, selected, onSelect, canManageCompanies }) {
+  const updateCompany = useUpdateCompany(company.id)
+
+  return (
+    <tr
+      onClick={onSelect}
+      className={`border-t border-surface-border cursor-pointer ${selected ? 'bg-surface-muted/60' : 'hover:bg-surface-muted/40'}`}
+    >
+      <td className="px-5 py-3 text-ink-900 font-medium">{company.name}</td>
+      <td className="px-2 py-3 text-ink-700">{company.industry || '—'}</td>
+      <td className="px-2 py-3 text-ink-700">{company.plan}</td>
+      <td className="px-2 py-3 text-ink-700">{company.status}</td>
+      <td className="px-2 py-3 text-ink-500">{company.country || '—'}</td>
+      <td className="px-5 py-3">
+        {canManageCompanies && company.status === 'Pending' ? (
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => updateCompany.mutate({ status: 'Approved' })}
+              disabled={updateCompany.isPending}
+              className="text-[10px] font-medium text-brand-green hover:underline"
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => updateCompany.mutate({ status: 'Rejected' })}
+              disabled={updateCompany.isPending}
+              className="text-[10px] font-medium text-status-pending hover:underline"
+            >
+              Reject
+            </button>
+          </div>
+        ) : (
+          <span className="text-[10px] text-ink-300">—</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
 function ClientPoolTab({
   clients, selectedClient, selectedClientId, setSelectedClientId,
   poolSearch, setPoolSearch, planFilter, setPlanFilter, planFilterOpen, setPlanFilterOpen, onAddClient,
-  isLoading, isError, error, onRetry, canManageCompanies,
+  isLoading, isError, error, onRetry, canManageCompanies, canManageUsers, onCreateClientUser,
 }) {
   const detail = selectedClient
 
@@ -855,24 +963,18 @@ function ClientPoolTab({
                     <th className="font-medium px-2 py-3">Industry</th>
                     <th className="font-medium px-2 py-3">Plan</th>
                     <th className="font-medium px-2 py-3">Reg. Status</th>
-                    <th className="font-medium px-5 py-3">Country</th>
+                    <th className="font-medium px-2 py-3">Country</th>
+                    <th className="font-medium px-5 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {clients.map((c) => (
-                    <tr
-                      key={c.id}
-                      onClick={() => setSelectedClientId(c.id)}
-                      className={`border-t border-surface-border cursor-pointer ${
-                        selectedClientId === c.id ? 'bg-surface-muted/60' : 'hover:bg-surface-muted/40'
-                      }`}
-                    >
-                      <td className="px-5 py-3 text-ink-900 font-medium">{c.name}</td>
-                      <td className="px-2 py-3 text-ink-700">{c.industry || '—'}</td>
-                      <td className="px-2 py-3 text-ink-700">{c.plan}</td>
-                      <td className="px-2 py-3 text-ink-700">{c.status}</td>
-                      <td className="px-5 py-3 text-ink-500">{c.country || '—'}</td>
-                    </tr>
+                    <ClientPoolRow
+                      key={c.id} company={c}
+                      selected={selectedClientId === c.id}
+                      onSelect={() => setSelectedClientId(c.id)}
+                      canManageCompanies={canManageCompanies}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -881,7 +983,17 @@ function ClientPoolTab({
 
           {detail && (
             <div className="bg-white border border-surface-border rounded-lg p-5 h-fit">
-              <h4 className="font-semibold text-ink-900">{detail.name}</h4>
+              <div className="flex items-start justify-between mb-1">
+                <h4 className="font-semibold text-ink-900">{detail.name}</h4>
+                {canManageUsers && (
+                  <button
+                    onClick={onCreateClientUser}
+                    className="text-[10px] font-medium text-brand-green hover:underline whitespace-nowrap"
+                  >
+                    + Create Client User
+                  </button>
+                )}
+              </div>
               <p className="text-xs text-ink-500 mb-4">{detail.country || '—'}</p>
 
               <p className="text-xs text-ink-500 font-medium mb-2">Company Information</p>
@@ -901,6 +1013,14 @@ function ClientPoolTab({
                 <div>
                   <div className="text-xs text-ink-300">Registration Date</div>
                   <div className="text-ink-900">{detail.registration_date || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-ink-300 mb-1">Plan</div>
+                  {canManageCompanies ? (
+                    <PlanSelector company={detail} />
+                  ) : (
+                    <div className="text-ink-900">{detail.plan}</div>
+                  )}
                 </div>
               </div>
 

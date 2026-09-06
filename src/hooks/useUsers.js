@@ -2,7 +2,7 @@
  * React Query hooks for users. Same pattern as useCompanies.js.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getUsers, createUser, updateUser, deactivateUser } from '../api/users.js'
+import { getUsers, createUser, updateUser, deactivateUser, resetUserPassword } from '../api/users.js'
 
 export function useUsers(params = {}) {
   return useQuery({
@@ -43,5 +43,11 @@ export function useDeactivateUser() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
     },
+  })
+}
+
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: ({ id, newPassword }) => resetUserPassword(id, newPassword),
   })
 }

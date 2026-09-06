@@ -16,7 +16,7 @@ import { getDatasetVersions } from '../api/datasets.js'
 import { domainGuidance, questionBank } from '../data/mockData'
 
 const YEARS = ['2026', '2025']
-const PERIODS = ['Q2 2026', 'Q1 2026']
+const PERIODS = ['Q4 2026', 'Q3 2026', 'Q2 2026', 'Q1 2026']
 const DOMAINS = Object.keys(domainGuidance)
 const CATEGORIES = Object.keys(questionBank)
 

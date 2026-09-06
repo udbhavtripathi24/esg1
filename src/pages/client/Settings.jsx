@@ -1,13 +1,53 @@
 import { useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { CheckCircle2 } from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
 import { Card, Button, Field, Input } from '../../components/ui.jsx'
 import { currentClientUser } from '../../data/mockData'
+import { changeOwnPassword } from '../../api/auth.js'
 
 const TABS = ['Profile', 'Notifications', 'Security']
 
 export default function Settings() {
   const [tab, setTab] = useState('Profile')
   const [emailNotifs, setEmailNotifs] = useState({ tasks: true, deadlines: true, comments: true, weekly: false })
+
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordFormError, setPasswordFormError] = useState(null)
+  const [passwordChangedAt, setPasswordChangedAt] = useState(null)
+
+  const changePasswordMutation = useMutation({
+    mutationFn: () => changeOwnPassword(currentPassword, newPassword),
+    onSuccess: () => {
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+      setPasswordFormError(null)
+      setPasswordChangedAt(Date.now())
+    },
+    onError: (err) => {
+      if (err.status === 403) setPasswordFormError('Current password is incorrect.')
+      else if (err.status === 422) setPasswordFormError('New password must be at least 8 characters.')
+      else setPasswordFormError(err.message || 'Could not update your password. Please try again.')
+    },
+  })
+
+  function handleChangePassword() {
+    setPasswordFormError(null)
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordFormError('Please fill in all three fields.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordFormError('New password and confirmation do not match.')
+      return
+    }
+    if (newPassword.length < 8) {
+      setPasswordFormError('New password must be at least 8 characters.')
+      return
+    }
+    changePasswordMutation.mutate()
+  }
 
   return (
     <div>
@@ -72,13 +112,31 @@ export default function Settings() {
       {tab === 'Security' && (
         <Card className="max-w-lg">
           <p className="text-sm font-medium text-ink-900 mb-3">Change Password</p>
+          {passwordChangedAt && (
+            <div className="flex items-center gap-2 bg-status-approved/10 text-status-approved text-xs rounded-md px-3 py-2 mb-4">
+              <CheckCircle2 size={14} /> Your password was updated successfully.
+            </div>
+          )}
+          {passwordFormError && (
+            <p className="text-xs text-status-pending bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-4">
+              {passwordFormError}
+            </p>
+          )}
           <div className="space-y-4">
-            <Field label="Current Password"><Input type="password" placeholder="••••••••" /></Field>
-            <Field label="New Password"><Input type="password" placeholder="••••••••" /></Field>
-            <Field label="Confirm New Password"><Input type="password" placeholder="••••••••" /></Field>
+            <Field label="Current Password">
+              <Input type="password" placeholder="••••••••" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+            </Field>
+            <Field label="New Password">
+              <Input type="password" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            </Field>
+            <Field label="Confirm New Password">
+              <Input type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            </Field>
           </div>
           <div className="flex justify-end mt-5">
-            <Button>Update password</Button>
+            <Button onClick={handleChangePassword} disabled={changePasswordMutation.isPending}>
+              {changePasswordMutation.isPending ? 'Updating…' : 'Update password'}
+            </Button>
           </div>
         </Card>
       )}
