@@ -18,6 +18,7 @@ import ClientReviewCenter from './pages/client/ReviewCenter.jsx'
 import Analytics from './pages/client/Analytics.jsx'
 import Benchmarking from './pages/client/Benchmarking.jsx'
 import Reporting from './pages/client/Reporting.jsx'
+import EsgDemoDashboard from './pages/client/EsgDemoDashboard.jsx'
 import Assurance from './pages/client/Assurance.jsx'
 import PersonalizedAssessment from './pages/client/PersonalizedAssessment.jsx'
 import Surveys from './pages/client/Surveys.jsx'
@@ -79,6 +80,7 @@ function App() {
             <Route path="benchmarking" element={<Benchmarking />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="reporting" element={<Reporting />} />
+            <Route path="esg-demo-dashboard" element={<EsgDemoDashboard />} />
             <Route path="assurance" element={<Assurance />} />
             <Route path="personalized-assessment" element={<PersonalizedAssessment />} />
             <Route path="surveys" element={<Surveys />} />
