@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { FileText, CheckCircle2, Search, Info } from 'lucide-react'
+import { FileText, CheckCircle2, Search, Info, Sparkles } from 'lucide-react'
 import PageHeader from './PageHeader.jsx'
 import { Button, Card, Field, Select, StatusPill, EmptyState } from './ui.jsx'
 import FileDropzone from './FileDropzone.jsx'
@@ -16,7 +16,7 @@ import { getDatasetVersions } from '../api/datasets.js'
 import { domainGuidance, questionBank } from '../data/mockData'
 
 const YEARS = ['2026', '2025']
-const PERIODS = ['Q4 2026', 'Q3 2026', 'Q2 2026', 'Q1 2026']
+const PERIODS = ['Q2 2026', 'Q1 2026']
 const DOMAINS = Object.keys(domainGuidance)
 const CATEGORIES = Object.keys(questionBank)
 
@@ -415,6 +415,65 @@ function QuantitativeTab({ user, pushToast }) {
   )
 }
 
+/**
+ * Frontend-only prototype for manager review. Clicking an option gives
+ * real, visible feedback (a toast) and closes the menu, but does not
+ * call any real AI service -- that's real backend work, deliberately
+ * held back until this prototype is approved.
+ *
+ * Note on "Shorten": the reference mockup's own description text for
+ * this option was identical to "Improve Writing" (an apparent
+ * copy-paste slip in the source design) -- using an accurate
+ * description here instead of reproducing that mismatch.
+ */
+const AI_WRITING_OPTIONS = [
+  { key: 'improve', label: 'Improve Writing', description: 'Fix grammar, spelling and sentence structure' },
+  { key: 'rephrase', label: 'Rephrase', description: 'Clearer, structured and more professional' },
+  { key: 'expand', label: 'Expand', description: 'Turn notes into a complete response' },
+  { key: 'shorten', label: 'Shorten', description: 'Make the response more concise' },
+]
+
+function AiWritingAssistant({ pushToast }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative inline-block">
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full right-0 mb-2 w-64 bg-white border border-brand-green/30 rounded-lg shadow-lg z-20 overflow-hidden">
+            <div className="flex items-center gap-1.5 px-3.5 py-2.5 border-b border-surface-border">
+              <Sparkles size={13} className="text-brand-green" />
+              <span className="text-xs font-semibold text-ink-900">AI Writing Assistant</span>
+            </div>
+            <div className="py-1.5">
+              {AI_WRITING_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => {
+                    setOpen(false)
+                    pushToast(`"${opt.label}" will apply once AI is enabled for this workspace.`)
+                  }}
+                  className="w-full text-left px-3.5 py-2 hover:bg-surface-muted/60 transition-colors"
+                >
+                  <p className="text-xs font-semibold text-ink-900">{opt.label}</p>
+                  <p className="text-[10px] text-ink-500 mt-0.5">{opt.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-brand-green/40 text-brand-green text-[11px] font-medium hover:bg-brand-green/5 transition-colors"
+      >
+        <Sparkles size={12} /> Improve with AI
+      </button>
+    </div>
+  )
+}
+
 function QualitativeTab({ pushToast }) {
   const [category, setCategory] = useState(CATEGORIES[0])
   const [selectedQuestion, setSelectedQuestion] = useState(0)
@@ -473,7 +532,10 @@ function QualitativeTab({ pushToast }) {
             placeholder="Enter your narrative response here. Reference specific programs, data or governance structure where applicable......."
             className="w-full px-3 py-2.5 rounded-md border border-surface-border text-sm placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20"
           />
-          <p className="text-[9px] text-ink-300 mt-1">{response.length} characters</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-[9px] text-ink-300">{response.length} characters</p>
+            <AiWritingAssistant pushToast={pushToast} />
+          </div>
         </Card>
 
         <Card>

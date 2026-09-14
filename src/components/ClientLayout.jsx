@@ -16,7 +16,7 @@ const navItems = [
   { to: '/client/reporting', label: 'Reporting', icon: FileText },
   { to: '/client/esg-demo-dashboard', label: 'ESG Dashboard (Demo)', icon: Leaf },
   { to: '/client/assurance', label: 'Assurance', icon: ShieldCheck },
-  { to: '/client/personalized-assessment', label: 'Assessment', icon: ClipboardList },
+  { to: '/client/assessments', label: 'Assessment', icon: ClipboardList },
   { to: '/client/surveys', label: 'Surveys', icon: MessageSquare },
 ]
 

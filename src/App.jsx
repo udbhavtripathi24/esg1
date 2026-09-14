@@ -21,6 +21,7 @@ import Reporting from './pages/client/Reporting.jsx'
 import EsgDemoDashboard from './pages/client/EsgDemoDashboard.jsx'
 import Assurance from './pages/client/Assurance.jsx'
 import PersonalizedAssessment from './pages/client/PersonalizedAssessment.jsx'
+import AssessmentsList from './pages/client/AssessmentsList.jsx'
 import Surveys from './pages/client/Surveys.jsx'
 import AdminConsole from './pages/client/AdminConsole.jsx'
 import Settings from './pages/client/Settings.jsx'
@@ -82,6 +83,7 @@ function App() {
             <Route path="reporting" element={<Reporting />} />
             <Route path="esg-demo-dashboard" element={<EsgDemoDashboard />} />
             <Route path="assurance" element={<Assurance />} />
+            <Route path="assessments" element={<AssessmentsList />} />
             <Route path="personalized-assessment" element={<PersonalizedAssessment />} />
             <Route path="surveys" element={<Surveys />} />
             <Route path="admin-console" element={<AdminConsole />} />
