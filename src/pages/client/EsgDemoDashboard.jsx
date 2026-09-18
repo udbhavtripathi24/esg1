@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  AlertTriangle, Leaf, Users, ShieldCheck, Flame, Zap, Droplet, Trash2,
+  AlertTriangle, Leaf, Users, ShieldCheck, CloudRain, Flame, Zap, Droplet, Trash2,
   GraduationCap, UserCheck, HeartPulse, ShieldAlert, MessageSquareWarning,
   Landmark, Truck,
 } from 'lucide-react'
@@ -12,6 +12,7 @@ import PageHeader from '../../components/PageHeader.jsx'
 import { Card, Select } from '../../components/ui.jsx'
 import LoadingState from '../../components/LoadingState.jsx'
 import ErrorState from '../../components/ErrorState.jsx'
+import ClimateRiskSection from './ClimateRiskSection.jsx'
 import {
   useDemoFilters, useDemoGhg, useDemoEnergy, useDemoWater, useDemoWaste,
   useDemoSocialTraining, useDemoSocialDiversity, useDemoSocialWellbeing,
@@ -783,6 +784,7 @@ const DOMAIN_TABS = {
     { key: 'Energy', icon: Zap, Component: EnergySection },
     { key: 'Water', icon: Droplet, Component: WaterSection },
     { key: 'Waste', icon: Trash2, Component: WasteSection },
+    { key: 'Climate Risk Assessment', icon: CloudRain, Component: ClimateRiskSection },
   ]},
   Social: { icon: Users, subTabs: [
     { key: 'Employee Training', icon: GraduationCap, Component: TrainingSection },
@@ -873,19 +875,21 @@ export default function EsgDemoDashboard() {
       </div>
 
       {/* Sub-tabs for the active domain -- pill style, visually distinct from the top-level tabs */}
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        {DOMAIN_TABS[domain].subTabs.map(({ key, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setSubTab(key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
-              subTab === key ? 'bg-brand-green text-white' : 'bg-surface-muted text-ink-600 hover:bg-surface-muted/70'
-            }`}
-          >
-            <Icon size={12} /> {key}
-          </button>
-        ))}
-      </div>
+      {DOMAIN_TABS[domain].subTabs.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 mb-5">
+          {DOMAIN_TABS[domain].subTabs.map(({ key, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setSubTab(key)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
+                subTab === key ? 'bg-brand-green text-white' : 'bg-surface-muted text-ink-600 hover:bg-surface-muted/70'
+              }`}
+            >
+              <Icon size={12} /> {key}
+            </button>
+          ))}
+        </div>
+      )}
 
       <ActiveComponent params={params} />
     </div>

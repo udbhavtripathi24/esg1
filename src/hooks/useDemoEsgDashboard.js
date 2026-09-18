@@ -4,6 +4,7 @@ import {
   getDemoSocialTraining, getDemoSocialDiversity, getDemoSocialWellbeing,
   getDemoSocialHealthSafety, getDemoSocialComplaints,
   getDemoGovernanceLeadership, getDemoGovernanceSupplyChain,
+  getClimateFilters, getClimateTrend, getClimateScenario,
 } from '../api/demoEsgDashboard.js'
 
 export function useDemoFilters() {
@@ -44,4 +45,14 @@ export function useDemoGovernanceLeadership(params) {
 }
 export function useDemoGovernanceSupplyChain(params) {
   return useQuery({ queryKey: ['demo-esg', 'gov-supply-chain', params], queryFn: () => getDemoGovernanceSupplyChain(params) })
+}
+
+export function useClimateFilters() {
+  return useQuery({ queryKey: ['demo-esg', 'climate-filters'], queryFn: getClimateFilters })
+}
+export function useClimateTrend(params) {
+  return useQuery({ queryKey: ['demo-esg', 'climate-trend', params], queryFn: () => getClimateTrend(params) })
+}
+export function useClimateScenario(params) {
+  return useQuery({ queryKey: ['demo-esg', 'climate-scenario', params], queryFn: () => getClimateScenario(params) })
 }

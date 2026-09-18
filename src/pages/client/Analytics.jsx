@@ -164,6 +164,41 @@ function InsightBanner({ kpi, comparisonQuery, summaryQuery }) {
   )
 }
 
+function AnalyzeWithAiButton() {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      {open && (
+        <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+      )}
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 px-3.5 py-2 rounded-md border border-brand-green/40 text-brand-green text-xs font-medium hover:bg-brand-green/5 transition-colors relative z-20"
+      >
+        <Sparkles size={14} /> Analyze with AI
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-2 w-72 bg-white border border-brand-green/30 rounded-lg shadow-lg z-20 p-4">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-ink-900 mb-1.5">
+            <Sparkles size={13} className="text-brand-green" /> AI Analytics Assistant
+          </p>
+          <p className="text-[11px] text-ink-500 leading-relaxed mb-3">
+            AI-powered analysis of this data -- trend explanations, anomaly detection, and plain-English
+            summaries -- will be available here once AI is enabled for this workspace.
+          </p>
+          <button
+            onClick={() => setOpen(false)}
+            className="text-[11px] font-medium text-brand-green hover:underline"
+          >
+            Got it
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Analytics() {
   const { periodStart, periodEnd, label: currentLabel } = currentQuarterRange()
   const [kpiCode, setKpiCode] = useState(KPI_OPTIONS[0].code)
@@ -207,7 +242,7 @@ export default function Analytics() {
 
   return (
     <div>
-      <PageHeader title="Analytics" subtitle="Real, as-reported KPI analysis -- no scoring, no estimated emissions." />
+      <PageHeader title="Analytics" subtitle="Real, as-reported KPI analysis -- no scoring, no estimated emissions." action={<AnalyzeWithAiButton />} />
 
       <div className="mb-5 max-w-xs">
         <label className="text-[10px] text-ink-500 mb-1 block">Reporting period</label>

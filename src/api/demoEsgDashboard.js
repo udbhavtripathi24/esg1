@@ -48,3 +48,18 @@ export function getDemoGovernanceLeadership(params = {}) {
 export function getDemoGovernanceSupplyChain(params = {}) {
   return apiClient.get('/demo-esg-dashboard/governance/supply-chain', { params })
 }
+
+export function getClimateFilters() {
+  return apiClient.get('/demo-esg-dashboard/climate/filters')
+}
+export function getClimateTrend(params = {}) {
+  return apiClient.get('/demo-esg-dashboard/climate/trend', { params })
+}
+export function getClimateScenario(params = {}) {
+  // Convert years array to comma-separated string for backend compatibility
+  const processedParams = { ...params }
+  if (processedParams.years && Array.isArray(processedParams.years)) {
+    processedParams.years = processedParams.years.join(',')
+  }
+  return apiClient.get('/demo-esg-dashboard/climate/scenario', { params: processedParams })
+}
