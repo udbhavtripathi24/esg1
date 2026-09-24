@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import {
   Award, TrendingUp, Sparkles, FileCode2, FileText,
-  CheckCircle2, Info, Send, Trophy, Target,
+  CheckCircle2, Info, Send, Trophy, Target, Swords, SlidersHorizontal,
+  ScatterChart as ScatterIcon, ArrowRight, AlertTriangle, Check, X as XIcon,
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis,
-  PolarRadiusAxis, Radar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, Cell, LabelList,
+  PolarRadiusAxis, Radar, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, Cell, LabelList, ScatterChart, Scatter,
+  ReferenceLine,
 } from 'recharts'
 import PageHeader from '../../components/PageHeader.jsx'
 import { Card, Button, Select, ProgressBar } from '../../components/ui.jsx'
@@ -16,6 +18,8 @@ import ErrorState from '../../components/ErrorState.jsx'
 import {
   useBenchmarkFilters, useBenchmarkOverview, useKpiComparison,
   usePillarSummary, useBenchmarkTrend, useBenchmarkAiInsights,
+  usePeers, useHeadToHead, useScatter, useSimulation,
+  useAnalysisModes, useAnalysis,
 } from '../../hooks/useBenchmarking.js'
 
 /**
@@ -151,7 +155,7 @@ function AiInsightsPanel({ params, pushToast }) {
   const q = useBenchmarkAiInsights(params)
   const [question, setQuestion] = useState('')
 
-  if (q.isLoading) return <Card title="AI Insights"><LoadingState label="Analysing…" /></Card>
+  if (q.isLoading || !q.data) return <Card title="AI Insights"><LoadingState label="Analysing…" /></Card>
   if (q.isError) return <Card title="AI Insights"><ErrorState message="Could not load insights." onRetry={() => q.refetch()} /></Card>
   const d = q.data
 
@@ -239,7 +243,7 @@ function AiInsightsPanel({ params, pushToast }) {
 
 function PillarChart({ params }) {
   const q = usePillarSummary(params)
-  if (q.isLoading) return <LoadingState label="Loading…" />
+  if (q.isLoading || !q.data) return <LoadingState label="Loading…" />
   if (q.isError) return <ErrorState message="Could not load." onRetry={() => q.refetch()} />
   const data = q.data.pillars.map((p) => ({ name: p.pillar, percentile: p.your_percentile }))
   return (
@@ -300,7 +304,7 @@ function PeerComparisonChart({ params, kpis }) {
         </div>
       }
     >
-      {q.isLoading ? <LoadingState label="Loading…" /> :
+      {q.isLoading || !q.data ? <LoadingState label="Loading…" /> :
        q.isError ? <ErrorState message="Could not load." onRetry={() => q.refetch()} /> :
        q.data.not_found ? <p className="text-xs text-ink-400 py-8 text-center">KPI not found.</p> : (
         <ResponsiveContainer width="100%" height={Math.max(220, q.data.rows.length * 32)}>
@@ -336,7 +340,7 @@ function TrendChart({ sector, kpis }) {
         </div>
       }
     >
-      {q.isLoading ? <LoadingState label="Loading…" /> :
+      {q.isLoading || !q.data ? <LoadingState label="Loading…" /> :
        q.isError ? <ErrorState message="Could not load." onRetry={() => q.refetch()} /> :
        q.data.not_found ? <p className="text-xs text-ink-400 py-8 text-center">KPI not found.</p> : (
         <ResponsiveContainer width="100%" height={240}>
@@ -356,6 +360,336 @@ function TrendChart({ sector, kpis }) {
 }
 
 /* ---------------- Page ---------------- */
+
+/* ---------------- Tornado: distance from peer median ---------------- */
+
+function TornadoChart({ overview }) {
+  // Percentile minus 50 turns "where do I sit" into "how far from the
+  // middle of the pack, and which side" -- the whole nine-KPI story in
+  // one glance, which the detail table cannot give you.
+  const data = overview.kpis
+    .map((k) => ({ name: k.name, delta: Math.round((k.percentile - 50) * 10) / 10, pillar: k.pillar }))
+    .sort((a, b) => a.delta - b.delta)
+
+  return (
+    <Card
+      title="Distance from peer median"
+      subtitle="Percentage points above or below the middle of the peer set, per KPI"
+      className="mb-4"
+    >
+      <ResponsiveContainer width="100%" height={Math.max(260, data.length * 34)}>
+        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 40 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#EEE" horizontal={false} />
+          <XAxis type="number" domain={[-50, 50]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v > 0 ? '+' : ''}${v}`} />
+          <YAxis type="category" dataKey="name" tick={{ fontSize: 9 }} width={185} />
+          <Tooltip content={<ChartTooltip unit="pts vs median" />} />
+          <ReferenceLine x={0} stroke="#94A3B8" strokeWidth={1.5} />
+          <Bar dataKey="delta" name="vs median" isAnimationActive={false} radius={[3, 3, 3, 3]}>
+            <LabelList dataKey="delta" position="right" formatter={(v) => `${v > 0 ? '+' : ''}${v}`} style={{ fontSize: 9, fill: '#6B6B6B' }} />
+            {data.map((d, i) => <Cell key={i} fill={d.delta >= 0 ? '#64BC44' : '#F87171'} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-ink-400 mt-1 text-center">
+        Green bars are KPIs where you beat more than half the peer set. Red bars are where you do not.
+      </p>
+    </Card>
+  )
+}
+
+/* ---------------- Head to head ---------------- */
+
+function HeadToHead({ params, sector }) {
+  const peersQuery = usePeers({ sector })
+  const [peer, setPeer] = useState(null)
+  const chosen = peer || peersQuery.data?.peers?.[0]
+  const q = useHeadToHead({ ...params, peer: chosen })
+
+  return (
+    <Card
+      title="Head to head"
+      subtitle="Compare directly against one peer, KPI by KPI"
+      icon={Swords}
+      className="mb-4"
+      action={
+        <div className="w-56">
+          <Select value={chosen || ''} onChange={(e) => setPeer(e.target.value)}>
+            {(peersQuery.data?.peers || []).map((p) => <option key={p} value={p}>{p}</option>)}
+          </Select>
+        </div>
+      }
+    >
+      {q.isLoading || !q.data ? <LoadingState label="Comparing…" /> :
+       q.isError ? <ErrorState message="Could not load." onRetry={() => q.refetch()} /> :
+       q.data.not_found ? <p className="text-xs text-ink-400 py-6 text-center">Peer not found.</p> : (
+        <>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="px-2.5 py-1 rounded-md bg-brand-green/10 text-brand-greenDark font-semibold">
+                You win {q.data.you_win}
+              </span>
+              <span className="text-ink-300">·</span>
+              <span className="px-2.5 py-1 rounded-md bg-red-50 text-red-600 font-semibold">
+                {chosen} wins {q.data.peer_win}
+              </span>
+              {q.data.ties > 0 && <span className="text-[10px] text-ink-400">{q.data.ties} tied</span>}
+            </div>
+            <p className="text-[11px] text-ink-500 flex-1 min-w-[200px]">{q.data.summary}</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="text-left text-ink-500 border-b border-surface-border">
+                  <th className="font-medium py-2 pr-3">KPI</th>
+                  <th className="font-medium py-2 pr-3">You</th>
+                  <th className="font-medium py-2 pr-3">{chosen}</th>
+                  <th className="font-medium py-2 pr-3">Your advantage</th>
+                  <th className="font-medium py-2">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.rows.map((r) => (
+                  <tr key={r.code} className="border-b border-surface-border last:border-0">
+                    <td className="py-2 pr-3">
+                      <p className="text-ink-900 font-medium">{r.name}</p>
+                      <p className="text-ink-300 text-[9px]">{r.unit} · {r.direction === 'lower' ? 'lower is better' : 'higher is better'}</p>
+                    </td>
+                    <td className={`py-2 pr-3 font-semibold ${r.verdict === 'you' ? 'text-status-approved' : 'text-ink-700'}`}>{r.your_value}</td>
+                    <td className={`py-2 pr-3 ${r.verdict === 'peer' ? 'text-red-600 font-semibold' : 'text-ink-600'}`}>{r.peer_value}</td>
+                    <td className={`py-2 pr-3 ${r.advantage_pct >= 0 ? 'text-status-approved' : 'text-red-600'}`}>
+                      {r.advantage_pct >= 0 ? '+' : ''}{r.advantage_pct}%
+                    </td>
+                    <td className="py-2">
+                      {r.verdict === 'you'
+                        ? <span className="inline-flex items-center gap-1 text-status-approved font-medium"><Check size={11} /> You</span>
+                        : r.verdict === 'peer'
+                          ? <span className="inline-flex items-center gap-1 text-red-600 font-medium"><XIcon size={11} /> Peer</span>
+                          : <span className="text-ink-400">Tie</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Card>
+  )
+}
+
+/* ---------------- Positioning scatter ---------------- */
+
+function PositioningScatter({ params, kpis }) {
+  const [xKpi, setXKpi] = useState('ghg_intensity')
+  const [yKpi, setYKpi] = useState('energy_intensity')
+  const q = useScatter({ ...params, x_kpi: xKpi, y_kpi: yKpi })
+
+  return (
+    <Card
+      title="Sector positioning"
+      subtitle="Where every company sits across two KPIs at once"
+      icon={ScatterIcon}
+      action={
+        <div className="flex gap-2">
+          <div className="w-40">
+            <Select value={xKpi} onChange={(e) => setXKpi(e.target.value)}>
+              {kpis.map((k) => <option key={k.code} value={k.code}>X: {k.name}</option>)}
+            </Select>
+          </div>
+          <div className="w-40">
+            <Select value={yKpi} onChange={(e) => setYKpi(e.target.value)}>
+              {kpis.map((k) => <option key={k.code} value={k.code}>Y: {k.name}</option>)}
+            </Select>
+          </div>
+        </div>
+      }
+    >
+      {q.isLoading || !q.data ? <LoadingState label="Loading…" /> :
+       q.isError ? <ErrorState message="Could not load." onRetry={() => q.refetch()} /> :
+       q.data.not_found ? <p className="text-xs text-ink-400 py-6 text-center">KPI not found.</p> : (
+        <>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ top: 15, right: 25, bottom: 25, left: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EEE" />
+              <XAxis type="number" dataKey="x" name={q.data.x_kpi.name} tick={{ fontSize: 9 }}
+                     label={{ value: `${q.data.x_kpi.name} (${q.data.x_kpi.unit})`, position: 'insideBottom', offset: -15, style: { fontSize: 9, fill: '#6B6B6B' } }} />
+              <YAxis type="number" dataKey="y" name={q.data.y_kpi.name} tick={{ fontSize: 9 }}
+                     label={{ value: q.data.y_kpi.unit, angle: -90, position: 'insideLeft', style: { fontSize: 9, fill: '#6B6B6B' } }} />
+              <ZAxis range={[90, 90]} />
+              <ReferenceLine x={q.data.x_median} stroke="#CBD5E1" strokeDasharray="4 3" />
+              <ReferenceLine y={q.data.y_median} stroke="#CBD5E1" strokeDasharray="4 3" />
+              <Tooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null
+                  const d = payload[0].payload
+                  return (
+                    <div className="bg-white border border-surface-border rounded-md shadow-md px-3 py-2 text-[10px]">
+                      <p className="font-medium text-ink-900 mb-1">{d.company}</p>
+                      <p className="text-ink-600">{q.data.x_kpi.name}: {d.x} {q.data.x_kpi.unit}</p>
+                      <p className="text-ink-600">{q.data.y_kpi.name}: {d.y} {q.data.y_kpi.unit}</p>
+                    </div>
+                  )
+                }}
+              />
+              <Scatter data={q.data.points} isAnimationActive={false}>
+                {q.data.points.map((p, i) => (
+                  <Cell key={i} fill={p.is_you ? YOU_COLOR : '#94A3B8'} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+          <p className="text-[10px] text-ink-400 mt-1 text-center">
+            Dashed lines are the peer medians. Your organisation is the green point.
+            {q.data.x_kpi.direction === 'lower' && q.data.y_kpi.direction === 'lower' && ' Bottom-left is the strongest quadrant here.'}
+          </p>
+        </>
+      )}
+    </Card>
+  )
+}
+
+/* ---------------- What-if simulator ---------------- */
+
+function ImprovementSimulator({ params, kpis }) {
+  const [kpiCode, setKpiCode] = useState(kpis[0]?.code)
+  const [pct, setPct] = useState(20)
+  const q = useSimulation({ ...params, kpi_code: kpiCode, improvement_pct: pct })
+  const kpi = kpis.find((k) => k.code === kpiCode)
+
+  return (
+    <Card
+      title="What-if simulator"
+      subtitle="Improve one KPI and see the standing recalculated — not estimated"
+      icon={SlidersHorizontal}
+      className="mb-4"
+      action={
+        <div className="w-52">
+          <Select value={kpiCode} onChange={(e) => setKpiCode(e.target.value)}>
+            {kpis.map((k) => <option key={k.code} value={k.code}>{k.name}</option>)}
+          </Select>
+        </div>
+      }
+    >
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-[11px] text-ink-600">
+            Improve {kpi?.name} by <span className="font-semibold text-ink-900">{pct}%</span>
+            {kpi && <span className="text-ink-400"> ({kpi.direction === 'lower' ? 'reduce' : 'increase'})</span>}
+          </label>
+        </div>
+        <input
+          type="range" min={0} max={60} step={5}
+          value={pct} onChange={(e) => setPct(Number(e.target.value))}
+          className="w-full accent-brand-green"
+        />
+        <div className="flex justify-between text-[9px] text-ink-300 mt-0.5">
+          <span>0%</span><span>30%</span><span>60%</span>
+        </div>
+      </div>
+
+      {q.isLoading || !q.data ? <LoadingState label="Recalculating…" /> :
+       q.isError ? <ErrorState message="Could not load." onRetry={() => q.refetch()} /> :
+       q.data.not_found ? <p className="text-xs text-ink-400 py-4 text-center">KPI not found.</p> : (
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div className="border border-surface-border rounded-lg p-3">
+            <p className="text-[10px] text-ink-400 mb-1">{q.data.kpi.name}</p>
+            <p className="text-sm text-ink-700">
+              {q.data.current_value} <ArrowRight size={11} className="inline mx-1 text-ink-300" />
+              <span className="font-semibold text-brand-greenDark">{q.data.new_value}</span>
+              <span className="text-[10px] text-ink-400"> {q.data.kpi.unit}</span>
+            </p>
+          </div>
+          <div className="border border-surface-border rounded-lg p-3">
+            <p className="text-[10px] text-ink-400 mb-1">KPI percentile</p>
+            <p className="text-sm text-ink-700">
+              {q.data.kpi_percentile_before}% <ArrowRight size={11} className="inline mx-1 text-ink-300" />
+              <span className="font-semibold text-brand-greenDark">{q.data.kpi_percentile_after}%</span>
+            </p>
+          </div>
+          <div className={`rounded-lg p-3 border ${q.data.rank_change > 0 ? 'border-brand-green/40 bg-brand-green/5' : 'border-surface-border'}`}>
+            <p className="text-[10px] text-ink-400 mb-1">Sector rank</p>
+            <p className="text-sm text-ink-700">
+              #{q.data.rank_before} <ArrowRight size={11} className="inline mx-1 text-ink-300" />
+              <span className="font-semibold text-brand-greenDark">#{q.data.rank_after}</span>
+              {q.data.rank_change > 0 && <span className="text-[10px] text-status-approved ml-1">▲ {q.data.rank_change}</span>}
+            </p>
+          </div>
+          {q.data.companies_overtaken.length > 0 && (
+            <p className="sm:col-span-3 text-[11px] text-brand-greenDark bg-brand-green/5 border border-brand-green/25 rounded-md px-3 py-2">
+              At this level of improvement you would move ahead of{' '}
+              <span className="font-medium">{q.data.companies_overtaken.join(', ')}</span>.
+            </p>
+          )}
+          {q.data.rank_change === 0 && pct > 0 && (
+            <p className="sm:col-span-3 text-[11px] text-ink-500 bg-surface-muted/50 rounded-md px-3 py-2">
+              A {pct}% improvement here does not change your sector rank — the gap to the company above you
+              is driven by other KPIs. Try the roadmap in AI analysis to see which ones move the needle.
+            </p>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/* ---------------- AI analysis modes ---------------- */
+
+function AiAnalysisModes({ params }) {
+  const modesQuery = useAnalysisModes()
+  const [mode, setMode] = useState('executive')
+  const q = useAnalysis({ ...params, mode })
+
+  return (
+    <Card
+      title="AI analysis"
+      subtitle="Four different reads of the same computed comparison"
+      icon={Sparkles}
+      className="mb-4"
+    >
+      <div className="flex flex-wrap gap-2 mb-4">
+        {(modesQuery.data?.modes || []).map((m) => (
+          <button
+            key={m.key}
+            onClick={() => setMode(m.key)}
+            title={m.description}
+            className={`px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors ${
+              mode === m.key ? 'bg-brand-green text-white' : 'bg-surface-muted text-ink-600 hover:bg-surface-muted/70'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {q.isLoading || !q.data ? <LoadingState label="Analysing…" /> :
+       q.isError ? <ErrorState message="Could not load." onRetry={() => q.refetch()} /> : (
+        <>
+          <div className="bg-brand-green/5 border border-brand-green/25 rounded-lg p-3.5 mb-3">
+            <p className="text-xs text-ink-800 leading-relaxed">{q.data.body}</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {q.data.points.map((p, i) => (
+              <div key={i} className="border border-surface-border rounded-md p-2.5">
+                <p className="text-[10px] text-ink-400">{p.label}</p>
+                <p className="text-[11px] text-ink-900 font-medium mt-0.5">{p.value}</p>
+                {p.detail && <p className="text-[10px] text-ink-500 mt-1 leading-relaxed">{p.detail}</p>}
+              </div>
+            ))}
+          </div>
+          {q.data.mode === 'risk' && (
+            <p className="flex items-start gap-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-3">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+              Flags are relative to this peer set only. They indicate where peers report better figures on the
+              same standardised metric — not a compliance finding.
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
 
 function BenchmarkBody({ overview, params, sector, pushToast }) {
   const tone = percentileTone(overview.overall_percentile)
@@ -388,7 +722,20 @@ function BenchmarkBody({ overview, params, sector, pushToast }) {
         />
       </div>
 
+      <AiAnalysisModes params={params} />
+
       <AiInsightsPanel params={params} pushToast={pushToast} />
+
+      <TornadoChart overview={overview} />
+
+      <ImprovementSimulator params={params} kpis={overview.kpis} />
+
+      <HeadToHead params={params} sector={sector} />
+
+      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+        <PositioningScatter params={params} kpis={overview.kpis} />
+        <TrendChart sector={sector} kpis={overview.kpis} />
+      </div>
 
       <div className="grid lg:grid-cols-[1fr_400px] gap-4 mb-4">
         <Card title="Pillar performance" subtitle="Your percentile rank within the peer set, by pillar">
@@ -402,9 +749,8 @@ function BenchmarkBody({ overview, params, sector, pushToast }) {
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+      <div className="mb-4">
         <PeerComparisonChart params={params} kpis={overview.kpis} />
-        <TrendChart sector={sector} kpis={overview.kpis} />
       </div>
 
       <Card

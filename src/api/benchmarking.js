@@ -30,3 +30,27 @@ export function getBenchmarkTrend(params = {}) {
 export function getBenchmarkAiInsights(params = {}) {
   return apiClient.get('/benchmarking/ai-insights', { params })
 }
+
+export function getPeers(params = {}) {
+  return apiClient.get('/benchmarking/peers', { params })
+}
+
+export function getHeadToHead(params = {}) {
+  return apiClient.get('/benchmarking/head-to-head', { params })
+}
+
+export function getScatter(params = {}) {
+  return apiClient.get('/benchmarking/scatter', { params })
+}
+
+export function getSimulation(params = {}) {
+  return apiClient.get('/benchmarking/simulate', { params })
+}
+
+export function getAnalysisModes() {
+  return apiClient.get('/benchmarking/analysis-modes')
+}
+
+export function getAnalysis(params = {}) {
+  return apiClient.get('/benchmarking/analysis', { params })
+}
