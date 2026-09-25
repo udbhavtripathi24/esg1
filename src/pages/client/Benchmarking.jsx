@@ -3,6 +3,7 @@ import {
   Award, TrendingUp, Sparkles, FileCode2, FileText,
   CheckCircle2, Info, Send, Trophy, Target, Swords, SlidersHorizontal,
   ScatterChart as ScatterIcon, ArrowRight, AlertTriangle, Check, X as XIcon,
+  LayoutGrid, Users2, Upload as UploadIcon,
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis,
@@ -691,11 +692,34 @@ function AiAnalysisModes({ params }) {
   )
 }
 
+// Ordered as the actual workflow runs: upload a filing first, then read
+// the analysis it produces. Tabs read left to right, so putting upload
+// last told that story backwards.
+//
+// Note that the DEFAULT tab is deliberately Overview, not the first tab:
+// uploading is an occasional action, whereas reading the comparison is
+// the reason to open this page at all. Landing on an empty upload screen
+// on every visit would be the wrong trade.
+const BENCHMARK_TABS = [
+  { key: 'Data Upload', icon: UploadIcon },
+  { key: 'Overview', icon: LayoutGrid },
+  { key: 'AI Analysis', icon: Sparkles },
+  { key: 'Peer Analysis', icon: Users2 },
+  { key: 'Improvement', icon: Target },
+]
+
 function BenchmarkBody({ overview, params, sector, pushToast }) {
+  // Tabbed rather than one long scroll: the simulator and head-to-head are
+  // the most useful things on this page, and in a single column they sat
+  // several screens below the fold where nobody would find them.
+  const [tab, setTab] = useState('Overview')
   const tone = percentileTone(overview.overall_percentile)
 
   return (
     <>
+      {/* Headline figures stay visible on every tab -- they are the context
+          everything else is read against, so hiding them behind a tab would
+          mean losing your place each time you switch. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <StatCard
           icon={Award} tint="bg-brand-green/10 text-brand-greenDark"
@@ -722,139 +746,157 @@ function BenchmarkBody({ overview, params, sector, pushToast }) {
         />
       </div>
 
-      <AiAnalysisModes params={params} />
-
-      <AiInsightsPanel params={params} pushToast={pushToast} />
-
-      <TornadoChart overview={overview} />
-
-      <ImprovementSimulator params={params} kpis={overview.kpis} />
-
-      <HeadToHead params={params} sector={sector} />
-
-      <div className="grid lg:grid-cols-2 gap-4 mb-4">
-        <PositioningScatter params={params} kpis={overview.kpis} />
-        <TrendChart sector={sector} kpis={overview.kpis} />
+      <div className="flex items-center gap-6 border-b border-surface-border mb-5 overflow-x-auto">
+        {BENCHMARK_TABS.map(({ key, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 pb-3 text-sm -mb-px border-b-2 whitespace-nowrap transition-colors ${
+              tab === key ? 'border-brand-green text-brand-green font-medium' : 'border-transparent text-ink-500 hover:text-ink-900'
+            }`}
+          >
+            <Icon size={14} /> {key}
+          </button>
+        ))}
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_400px] gap-4 mb-4">
-        <Card title="Pillar performance" subtitle="Your percentile rank within the peer set, by pillar">
-          <PillarChart params={params} />
-          <p className="text-[10px] text-ink-400 mt-2 text-center">
-            50% is the peer median. Higher is better in every case — direction is already applied.
-          </p>
-        </Card>
-        <Card title="BRSR Core profile" subtitle="Percentile across all nine attributes">
-          <PercentileRadar overview={overview} />
-        </Card>
-      </div>
-
-      <div className="mb-4">
-        <PeerComparisonChart params={params} kpis={overview.kpis} />
-      </div>
-
-      <Card
-        title="BRSR Core KPI detail"
-        subtitle="Your value against the peer average and the best performer"
-        padded={false}
-        className="mb-4"
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="text-left text-ink-500 border-b border-surface-border">
-                <th className="font-medium px-5 py-2.5">KPI</th>
-                <th className="font-medium px-2 py-2.5">Pillar</th>
-                <th className="font-medium px-2 py-2.5">You</th>
-                <th className="font-medium px-2 py-2.5">Peer avg</th>
-                <th className="font-medium px-2 py-2.5">Best</th>
-                <th className="font-medium px-2 py-2.5 min-w-[130px]">Percentile</th>
-                <th className="font-medium px-5 py-2.5">Gap to best</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.kpis.map((k) => {
-                const t = percentileTone(k.percentile)
-                return (
-                  <tr key={k.code} className="border-b border-surface-border last:border-0">
-                    <td className="px-5 py-2.5">
-                      <p className="text-ink-900 font-medium">{k.name}</p>
-                      <p className="text-ink-300 text-[9px]">
-                        {k.unit} · {k.direction === 'lower' ? 'lower is better' : 'higher is better'}
-                      </p>
-                    </td>
-                    <td className="px-2 py-2.5">
-                      <span
-                        className="text-[9px] px-2 py-0.5 rounded-full"
-                        style={{ backgroundColor: `${PILLAR_COLORS[k.pillar]}1A`, color: PILLAR_COLORS[k.pillar] }}
-                      >
-                        {k.pillar}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2.5 text-ink-900 font-semibold">{k.your_value}</td>
-                    <td className="px-2 py-2.5 text-ink-600">{k.industry_average}</td>
-                    <td className="px-2 py-2.5 text-ink-600">
-                      {k.best_value}
-                      <span className="block text-[9px] text-ink-300">{k.best_company}</span>
-                    </td>
-                    <td className="px-2 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-[50px]"><ProgressBar pct={k.percentile} /></div>
-                        <span className={`${t.cls} font-medium whitespace-nowrap`}>{k.percentile}%</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-2.5 text-ink-600">
-                      {k.gap_to_best === 0
-                        ? <span className="text-status-approved font-medium">Best in peer set</span>
-                        : `${k.gap_to_best} ${k.unit}`}
-                    </td>
+      {tab === 'Overview' && (
+        <>
+          <div className="grid lg:grid-cols-[1fr_400px] gap-4 mb-4">
+            <Card title="Pillar performance" subtitle="Your percentile rank within the peer set, by pillar">
+              <PillarChart params={params} />
+              <p className="text-[10px] text-ink-400 mt-2 text-center">
+                50% is the peer median. Higher is better in every case — direction is already applied.
+              </p>
+            </Card>
+            <Card title="BRSR Core profile" subtitle="Percentile across all nine attributes">
+              <PercentileRadar overview={overview} />
+            </Card>
+          </div>
+          <TornadoChart overview={overview} />
+          <Card title="Sector leaderboard" subtitle="Ranked by mean percentile across all nine KPIs" padded={false}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-left text-ink-500 border-b border-surface-border">
+                    <th className="font-medium px-5 py-2.5">Rank</th>
+                    <th className="font-medium px-2 py-2.5">Organisation</th>
+                    <th className="font-medium px-2 py-2.5 min-w-[160px]">Mean percentile</th>
+                    <th className="font-medium px-5 py-2.5"></th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-[10px] text-ink-400 px-5 py-3 border-t border-surface-border leading-relaxed">
-          <span className="font-medium">How percentile is calculated: </span>{overview.methodology}
-        </p>
-      </Card>
+                </thead>
+                <tbody>
+                  {overview.leaderboard.map((r) => (
+                    <tr key={r.company} className={`border-b border-surface-border last:border-0 ${r.is_you ? 'bg-brand-green/5' : ''}`}>
+                      <td className="px-5 py-2.5 text-ink-700">#{r.rank}</td>
+                      <td className={`px-2 py-2.5 ${r.is_you ? 'text-ink-900 font-semibold' : 'text-ink-700'}`}>{r.company}</td>
+                      <td className="px-2 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 min-w-[60px]">
+                            <ProgressBar pct={r.mean_percentile} color={r.is_you ? YOU_COLOR : '#CBD5E1'} />
+                          </div>
+                          <span className="text-ink-600 whitespace-nowrap">{r.mean_percentile}%</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-2.5">
+                        {r.is_you && <span className="text-[9px] text-brand-greenDark font-medium">You</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
 
-      <Card title="Sector leaderboard" subtitle="Ranked by mean percentile across all nine KPIs" padded={false}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="text-left text-ink-500 border-b border-surface-border">
-                <th className="font-medium px-5 py-2.5">Rank</th>
-                <th className="font-medium px-2 py-2.5">Organisation</th>
-                <th className="font-medium px-2 py-2.5 min-w-[160px]">Mean percentile</th>
-                <th className="font-medium px-5 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.leaderboard.map((r) => (
-                <tr
-                  key={r.company}
-                  className={`border-b border-surface-border last:border-0 ${r.is_you ? 'bg-brand-green/5' : ''}`}
-                >
-                  <td className="px-5 py-2.5 text-ink-700">#{r.rank}</td>
-                  <td className={`px-2 py-2.5 ${r.is_you ? 'text-ink-900 font-semibold' : 'text-ink-700'}`}>{r.company}</td>
-                  <td className="px-2 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-[60px]">
-                        <ProgressBar pct={r.mean_percentile} color={r.is_you ? YOU_COLOR : '#CBD5E1'} />
-                      </div>
-                      <span className="text-ink-600 whitespace-nowrap">{r.mean_percentile}%</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-2.5">
-                    {r.is_you && <span className="text-[9px] text-brand-greenDark font-medium">You</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {tab === 'AI Analysis' && (
+        <>
+          <AiAnalysisModes params={params} />
+          <AiInsightsPanel params={params} pushToast={pushToast} />
+        </>
+      )}
+
+      {tab === 'Peer Analysis' && (
+        <>
+          <HeadToHead params={params} sector={sector} />
+          <div className="grid lg:grid-cols-2 gap-4 mb-4">
+            <PositioningScatter params={params} kpis={overview.kpis} />
+            <TrendChart sector={sector} kpis={overview.kpis} />
+          </div>
+          <PeerComparisonChart params={params} kpis={overview.kpis} />
+        </>
+      )}
+
+      {tab === 'Improvement' && (
+        <>
+          <ImprovementSimulator params={params} kpis={overview.kpis} />
+          <Card
+            title="BRSR Core KPI detail"
+            subtitle="Your value against the peer average and the best performer"
+            padded={false}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-left text-ink-500 border-b border-surface-border">
+                    <th className="font-medium px-5 py-2.5">KPI</th>
+                    <th className="font-medium px-2 py-2.5">Pillar</th>
+                    <th className="font-medium px-2 py-2.5">You</th>
+                    <th className="font-medium px-2 py-2.5">Peer avg</th>
+                    <th className="font-medium px-2 py-2.5">Best</th>
+                    <th className="font-medium px-2 py-2.5 min-w-[130px]">Percentile</th>
+                    <th className="font-medium px-5 py-2.5">Gap to best</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.kpis.map((k) => {
+                    const t = percentileTone(k.percentile)
+                    return (
+                      <tr key={k.code} className="border-b border-surface-border last:border-0">
+                        <td className="px-5 py-2.5">
+                          <p className="text-ink-900 font-medium">{k.name}</p>
+                          <p className="text-ink-300 text-[9px]">
+                            {k.unit} · {k.direction === 'lower' ? 'lower is better' : 'higher is better'}
+                          </p>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <span className="text-[9px] px-2 py-0.5 rounded-full"
+                                style={{ backgroundColor: `${PILLAR_COLORS[k.pillar]}1A`, color: PILLAR_COLORS[k.pillar] }}>
+                            {k.pillar}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2.5 text-ink-900 font-semibold">{k.your_value}</td>
+                        <td className="px-2 py-2.5 text-ink-600">{k.industry_average}</td>
+                        <td className="px-2 py-2.5 text-ink-600">
+                          {k.best_value}
+                          <span className="block text-[9px] text-ink-300">{k.best_company}</span>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-[50px]"><ProgressBar pct={k.percentile} /></div>
+                            <span className={`${t.cls} font-medium whitespace-nowrap`}>{k.percentile}%</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-2.5 text-ink-600">
+                          {k.gap_to_best === 0
+                            ? <span className="text-status-approved font-medium">Best in peer set</span>
+                            : `${k.gap_to_best} ${k.unit}`}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-ink-400 px-5 py-3 border-t border-surface-border leading-relaxed">
+              <span className="font-medium">How percentile is calculated: </span>{overview.methodology}
+            </p>
+          </Card>
+        </>
+      )}
+
+      {tab === 'Data Upload' && <UploadPanels pushToast={pushToast} />}
     </>
   )
 }
@@ -909,8 +951,6 @@ export default function Benchmarking() {
           unchanged once XBRL ingestion is connected.
         </p>
       </div>
-
-      <UploadPanels pushToast={pushToast} />
 
       {overviewQuery.isLoading ? <LoadingState label="Loading benchmark…" /> :
        overviewQuery.isError ? <ErrorState message="Could not load benchmark data." onRetry={() => overviewQuery.refetch()} /> : (
