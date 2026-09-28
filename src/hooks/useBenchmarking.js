@@ -3,7 +3,7 @@ import {
   getBenchmarkFilters, getBenchmarkOverview, getKpiComparison,
   getPillarSummary, getBenchmarkTrend, getBenchmarkAiInsights,
   getPeers, getHeadToHead, getScatter, getSimulation,
-  getAnalysisModes, getAnalysis,
+  getAnalysisModes, getAnalysis, getLibrary,
 } from '../api/benchmarking.js'
 
 export function useBenchmarkFilters() {
@@ -73,4 +73,9 @@ export function useAnalysisModes() {
 
 export function useAnalysis(params) {
   return useQuery({ queryKey: ['benchmarking', 'analysis', params], queryFn: () => getAnalysis(params) })
+}
+
+
+export function useLibrary(params) {
+  return useQuery({ queryKey: ['benchmarking', 'library', params], queryFn: () => getLibrary(params) })
 }

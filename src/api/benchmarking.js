@@ -54,3 +54,7 @@ export function getAnalysisModes() {
 export function getAnalysis(params = {}) {
   return apiClient.get('/benchmarking/analysis', { params })
 }
+
+export function getLibrary(params = {}) {
+  return apiClient.get('/benchmarking/library', { params })
+}

@@ -3,7 +3,7 @@ import {
   Award, TrendingUp, Sparkles, FileCode2, FileText,
   CheckCircle2, Info, Send, Trophy, Target, Swords, SlidersHorizontal,
   ScatterChart as ScatterIcon, ArrowRight, AlertTriangle, Check, X as XIcon,
-  LayoutGrid, Users2, Upload as UploadIcon,
+  LayoutGrid, Users2, Upload as UploadIcon, Building2, Library,
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis,
@@ -20,7 +20,7 @@ import {
   useBenchmarkFilters, useBenchmarkOverview, useKpiComparison,
   usePillarSummary, useBenchmarkTrend, useBenchmarkAiInsights,
   usePeers, useHeadToHead, useScatter, useSimulation,
-  useAnalysisModes, useAnalysis,
+  useAnalysisModes, useAnalysis, useLibrary,
 } from '../../hooks/useBenchmarking.js'
 
 /**
@@ -84,69 +84,156 @@ function StatCard({ icon: Icon, tint, value, label, sub, subTone }) {
 
 /* ---------------- Uploads ---------------- */
 
-function UploadPanels({ pushToast }) {
+function UploadPanels({ pushToast, params, sector }) {
   const [xbrlFiles, setXbrlFiles] = useState([])
   const [pdfFiles, setPdfFiles] = useState([])
+  const [peerFiles, setPeerFiles] = useState([])
+  const libraryQuery = useLibrary(params)
 
   return (
-    <div className="grid lg:grid-cols-2 gap-4 mb-5">
+    <>
+      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+        <Card
+          title="Your BRSR Report (XBRL)"
+          subtitle="Structured filing — KPIs are extracted exactly, by parser"
+          icon={FileCode2}
+        >
+          <FileDropzone
+            files={xbrlFiles}
+            onFilesChange={setXbrlFiles}
+            accept=".xml,.xbrl,.zip"
+            hint="XBRL or XML · as filed with the exchange"
+          />
+          <div className="flex items-start gap-1.5 mt-3 text-[10px] text-ink-400">
+            <Info size={12} className="mt-0.5 shrink-0" />
+            <p>
+              XBRL is machine-tagged, so every figure is read directly from the filing rather than
+              interpreted — no AI guesswork in the numbers that drive these charts.
+            </p>
+          </div>
+          <div className="flex justify-end mt-3">
+            <Button
+              disabled={xbrlFiles.length === 0}
+              onClick={() => { pushToast('XBRL ingestion is not connected yet — charts below use prototype data.'); setXbrlFiles([]) }}
+            >
+              Extract KPIs
+            </Button>
+          </div>
+        </Card>
+
+        <Card
+          title="Your Sustainability Report (PDF)"
+          subtitle="Narrative document — AI reads figures and context out of it"
+          icon={FileText}
+        >
+          <FileDropzone
+            files={pdfFiles}
+            onFilesChange={setPdfFiles}
+            accept=".pdf,.doc,.docx"
+            hint="PDF or Word · annual or sustainability report"
+          />
+          <div className="flex items-start gap-1.5 mt-3 text-[10px] text-amber-700">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            <p>
+              Figures pulled from a PDF are read by AI, not parsed from tagged fields, so they are
+              not as reliable as the XBRL route and are marked for review before use.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 mt-3">
+            <Button
+              variant="ghost"
+              disabled={pdfFiles.length === 0}
+              onClick={() => { pushToast('AI document analysis is not connected yet — this is a prototype.'); setPdfFiles([]) }}
+            >
+              Analyse with AI
+            </Button>
+            <Button
+              disabled={pdfFiles.length === 0}
+              onClick={() => { pushToast('AI KPI extraction is not connected yet. Extracted figures will require review before they are used.'); setPdfFiles([]) }}
+            >
+              Extract KPIs
+            </Button>
+          </div>
+        </Card>
+      </div>
+
       <Card
-        title="BRSR Report (XBRL)"
-        subtitle="Structured filing — KPIs are extracted exactly, by parser"
-        icon={FileCode2}
+        title="Add a company outside the standard library"
+        subtitle="Upload another company's BRSR to compare against it directly"
+        icon={Building2}
+        className="mb-4"
       >
         <FileDropzone
-          files={xbrlFiles}
-          onFilesChange={setXbrlFiles}
+          files={peerFiles}
+          onFilesChange={setPeerFiles}
           accept=".xml,.xbrl,.zip"
-          hint="XBRL or XML · as filed with the exchange"
+          hint="That company's BRSR XBRL filing · publicly available from the exchange"
         />
         <div className="flex items-start gap-1.5 mt-3 text-[10px] text-ink-400">
           <Info size={12} className="mt-0.5 shrink-0" />
           <p>
-            XBRL is machine-tagged, so every figure is read directly from the filing rather than
-            interpreted — no AI guesswork in the numbers that drive these charts.
+            The standard library covers the top filers in each sector. If the company you want to
+            benchmark against is not in it, upload their BRSR here and they join your comparison —
+            visible to you only, and marked as your own upload rather than curated content.
           </p>
         </div>
         <div className="flex justify-end mt-3">
           <Button
-            disabled={xbrlFiles.length === 0}
-            onClick={() => { pushToast('XBRL ingestion pipeline is not connected yet — charts below use prototype peer data.'); setXbrlFiles([]) }}
+            disabled={peerFiles.length === 0}
+            onClick={() => { pushToast('Custom peer ingestion is not connected yet — one sample custom peer is shown in the library below.'); setPeerFiles([]) }}
           >
-            Extract KPIs
+            Add to comparison
           </Button>
         </div>
       </Card>
 
       <Card
-        title="Sustainability Report (PDF)"
-        subtitle="Narrative document — read by AI for qualitative context"
-        icon={FileText}
+        title={`Peer library — ${sector}`}
+        subtitle="Who you are currently being compared against"
+        icon={Library}
+        padded={false}
+        action={
+          libraryQuery.data ? (
+            <span className="text-[10px] text-ink-500">
+              {libraryQuery.data.curated_count} curated
+              {libraryQuery.data.custom_count > 0 && ` · ${libraryQuery.data.custom_count} added by you`}
+            </span>
+          ) : null
+        }
       >
-        <FileDropzone
-          files={pdfFiles}
-          onFilesChange={setPdfFiles}
-          accept=".pdf,.doc,.docx"
-          hint="PDF or Word · annual or sustainability report"
-        />
-        <div className="flex items-start gap-1.5 mt-3 text-[10px] text-ink-400">
-          <Info size={12} className="mt-0.5 shrink-0" />
-          <p>
-            Unstructured narrative is where an LLM genuinely adds value — commitments, targets and
-            context that no structured filing captures.
-          </p>
-        </div>
-        <div className="flex justify-end mt-3">
-          <Button
-            variant="ghost"
-            disabled={pdfFiles.length === 0}
-            onClick={() => { pushToast('AI document analysis is not connected yet — this is a prototype.'); setPdfFiles([]) }}
-          >
-            Analyse with AI
-          </Button>
-        </div>
+        {libraryQuery.isLoading || !libraryQuery.data ? <div className="p-4"><LoadingState label="Loading…" /></div> :
+         libraryQuery.isError ? <div className="p-4"><ErrorState message="Could not load." onRetry={() => libraryQuery.refetch()} /></div> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="text-left text-ink-500 border-b border-surface-border">
+                  <th className="font-medium px-5 py-2.5">Company</th>
+                  <th className="font-medium px-2 py-2.5">Source</th>
+                  <th className="font-medium px-2 py-2.5">Period</th>
+                  <th className="font-medium px-5 py-2.5">KPIs available</th>
+                </tr>
+              </thead>
+              <tbody>
+                {libraryQuery.data.entries.map((e) => (
+                  <tr key={e.company} className={`border-b border-surface-border last:border-0 ${e.source !== 'Standard library' ? 'bg-brand-green/5' : ''}`}>
+                    <td className="px-5 py-2.5 text-ink-900 font-medium">{e.company}</td>
+                    <td className="px-2 py-2.5">
+                      <span className={`text-[9px] px-2 py-0.5 rounded-full ${
+                        e.source === 'Standard library' ? 'bg-ink-100 text-ink-600' : 'bg-brand-green/10 text-brand-greenDark'
+                      }`}>
+                        {e.source}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2.5 text-ink-600">{e.period}</td>
+                    <td className="px-5 py-2.5 text-ink-600">{e.kpis_available} of {e.kpis_total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
-    </div>
+    </>
   )
 }
 
@@ -896,7 +983,7 @@ function BenchmarkBody({ overview, params, sector, pushToast }) {
         </>
       )}
 
-      {tab === 'Data Upload' && <UploadPanels pushToast={pushToast} />}
+      {tab === 'Data Upload' && <UploadPanels pushToast={pushToast} params={params} sector={sector} />}
     </>
   )
 }
