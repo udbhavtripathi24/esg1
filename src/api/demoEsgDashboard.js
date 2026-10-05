@@ -63,3 +63,19 @@ export function getClimateScenario(params = {}) {
   }
   return apiClient.get('/demo-esg-dashboard/climate/scenario', { params: processedParams })
 }
+
+export function getDistrictFilters() {
+  return apiClient.get('/demo-esg-dashboard/climate/district/filters')
+}
+export function getDistrictScores(params = {}) {
+  return apiClient.get('/demo-esg-dashboard/climate/district/scores', { params })
+}
+export function getAssetFilters() {
+  return apiClient.get('/demo-esg-dashboard/climate/asset/filters')
+}
+export function getAssetScores(params = {}) {
+  return apiClient.get('/demo-esg-dashboard/climate/asset/scores', { params })
+}
+export function getAssetProfile(params = {}) {
+  return apiClient.get('/demo-esg-dashboard/climate/asset/profile', { params })
+}

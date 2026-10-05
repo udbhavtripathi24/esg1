@@ -5,6 +5,7 @@ import {
   getDemoSocialHealthSafety, getDemoSocialComplaints,
   getDemoGovernanceLeadership, getDemoGovernanceSupplyChain,
   getClimateFilters, getClimateTrend, getClimateScenario,
+  getDistrictFilters, getDistrictScores, getAssetFilters, getAssetScores, getAssetProfile,
 } from '../api/demoEsgDashboard.js'
 
 export function useDemoFilters() {
@@ -55,4 +56,25 @@ export function useClimateTrend(params) {
 }
 export function useClimateScenario(params) {
   return useQuery({ queryKey: ['demo-esg', 'climate-scenario', params], queryFn: () => getClimateScenario(params) })
+}
+
+
+export function useDistrictFilters() {
+  return useQuery({ queryKey: ['demo-esg', 'district-filters'], queryFn: getDistrictFilters })
+}
+export function useDistrictScores(params) {
+  return useQuery({ queryKey: ['demo-esg', 'district-scores', params], queryFn: () => getDistrictScores(params) })
+}
+export function useAssetFilters() {
+  return useQuery({ queryKey: ['demo-esg', 'asset-filters'], queryFn: getAssetFilters })
+}
+export function useAssetScores(params) {
+  return useQuery({ queryKey: ['demo-esg', 'asset-scores', params], queryFn: () => getAssetScores(params) })
+}
+export function useAssetProfile(params) {
+  return useQuery({
+    queryKey: ['demo-esg', 'asset-profile', params],
+    queryFn: () => getAssetProfile(params),
+    enabled: !!params?.asset_id,
+  })
 }

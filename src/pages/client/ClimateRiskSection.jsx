@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { TrendingUp } from 'lucide-react'
+import { TrendingUp, Layers, MapPin } from 'lucide-react'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -10,6 +10,7 @@ import ErrorState from '../../components/ErrorState.jsx'
 import {
   useClimateFilters, useClimateTrend, useClimateScenario,
 } from '../../hooks/useDemoEsgDashboard.js'
+import { DistrictRiskPanel, AssetRiskPanel } from './ClimateGeoPanels.jsx'
 
 /**
  * Climate Risk Assessment -- new top-level section in the ESG Demo
@@ -214,16 +215,47 @@ function ScenarioAnalysisPanel({ filters }) {
   )
 }
 
+const CLIMATE_TABS = [
+  { key: 'Trend & Scenario', icon: TrendingUp },
+  { key: 'District Risk Map', icon: Layers },
+  { key: 'Asset Risk Map', icon: MapPin },
+]
+
 export default function ClimateRiskSection() {
+  // Tabs rather than one column: the two maps are tall, and stacking all
+  // four views would push the asset map far below the fold where nobody
+  // would find it -- the same problem the Benchmarking page had.
+  const [tab, setTab] = useState('Trend & Scenario')
   const filtersQuery = useClimateFilters()
 
-  if (filtersQuery.isLoading) return <LoadingState label="Loading…" />
-  if (filtersQuery.isError) return <ErrorState message="Could not load." onRetry={() => filtersQuery.refetch()} />
-
   return (
-    <div className="grid lg:grid-cols-2 gap-4">
-      <TrendAnalysisPanel filters={filtersQuery.data} />
-      <ScenarioAnalysisPanel filters={filtersQuery.data} />
+    <div>
+      <div className="flex items-center gap-6 border-b border-surface-border mb-5 overflow-x-auto">
+        {CLIMATE_TABS.map(({ key, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 pb-3 text-sm -mb-px border-b-2 whitespace-nowrap transition-colors ${
+              tab === key ? 'border-brand-green text-brand-green font-medium' : 'border-transparent text-ink-500 hover:text-ink-900'
+            }`}
+          >
+            <Icon size={14} /> {key}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'Trend & Scenario' && (
+        filtersQuery.isLoading || !filtersQuery.data ? <LoadingState label="Loading…" /> :
+        filtersQuery.isError ? <ErrorState message="Could not load." onRetry={() => filtersQuery.refetch()} /> : (
+          <div className="grid lg:grid-cols-2 gap-4">
+            <TrendAnalysisPanel filters={filtersQuery.data} />
+            <ScenarioAnalysisPanel filters={filtersQuery.data} />
+          </div>
+        )
+      )}
+
+      {tab === 'District Risk Map' && <DistrictRiskPanel />}
+      {tab === 'Asset Risk Map' && <AssetRiskPanel />}
     </div>
   )
 }
