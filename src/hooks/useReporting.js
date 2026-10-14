@@ -46,7 +46,7 @@ export function useReportVersion(reportId, versionId) {
 export function useCreateReport() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ periodStart, periodEnd }) => createReport(periodStart, periodEnd),
+    mutationFn: ({ periodStart, periodEnd, reportType }) => createReport(periodStart, periodEnd, reportType),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reports', 'list'] }),
   })
 }
@@ -99,5 +99,5 @@ export function usePublishReport() {
 }
 
 export function useDownloadReport() {
-  return useMutation({ mutationFn: ({ reportId, versionId }) => getDownloadUrl(reportId, versionId) })
+  return useMutation({ mutationFn: ({ reportId, versionId, format }) => getDownloadUrl(reportId, versionId, format) })
 }

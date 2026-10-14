@@ -9,12 +9,15 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useDatasets } from '../hooks/useDatasets.js'
 import { useCompanies } from '../hooks/useCompanies.js'
 import { useUsers } from '../hooks/useUsers.js'
+import BrsrReview from './brsr/BrsrReview.jsx'
 
 const YEARS = ['2026', '2025']
 const PERIODS = ['Q2 2026', 'Q1 2026']
 
 export default function ReviewCenterView() {
-  const { user } = useAuth()
+  const { user, hasPermission } = useAuth()
+  const canReviewBrsr = hasPermission('dataset:review')
+  const [tab, setTab] = useState('Datasets')
   const [year, setYear] = useState(YEARS[0])
   const [period, setPeriod] = useState(PERIODS[0])
   const [search, setSearch] = useState('')
@@ -76,6 +79,26 @@ export default function ReviewCenterView() {
         </div>
       )}
 
+      {canReviewBrsr && (
+        <div className="flex items-center gap-6 border-b border-surface-border mb-5">
+          {['Datasets', 'BRSR sections'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`pb-3 text-xs -mb-px border-b-2 transition-colors ${
+                tab === t ? 'border-brand-green text-brand-green font-medium' : 'border-transparent text-ink-500 hover:text-ink-900'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === 'BRSR sections' ? (
+        <BrsrReview pushToast={pushToast} />
+      ) : (
+      <>
       <Card className="mb-4">
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Field label="Reporting Year"><Select value={year} onChange={(e) => setYear(e.target.value)}>{YEARS.map((y) => <option key={y}>{y}</option>)}</Select></Field>
@@ -140,6 +163,8 @@ export default function ReviewCenterView() {
         </div>
         )}
       </Card>
+      </>
+      )}
     </div>
   )
 }

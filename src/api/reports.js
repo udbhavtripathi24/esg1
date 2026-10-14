@@ -5,7 +5,7 @@
  * app/api/routes/reports.py, both real, tested, tenant-safe):
  *   GET  /reporting/readiness?period_start=&period_end=
  *   GET  /reports?page=&page_size=
- *   POST /reports {reporting_period_start, reporting_period_end}
+ *   POST /reports {reporting_period_start, reporting_period_end, report_type}
  *   GET  /reports/{id}
  *   GET  /reports/{id}/versions
  *   GET  /reports/{id}/versions/{v}
@@ -13,7 +13,7 @@
  *   POST /reports/{id}/versions/{v}/submit-review {reviewer_user_id}
  *   POST /reports/{id}/versions/{v}/decide {decision, note}
  *   POST /reports/{id}/versions/{v}/publish
- *   GET  /reports/{id}/versions/{v}/download
+ *   GET  /reports/{id}/versions/{v}/download?format=docx|pdf
  *
  * company_id is NEVER sent by a client actor -- the backend always
  * derives it from the authenticated actor.
@@ -28,8 +28,8 @@ export function listReports(params = {}) {
   return apiClient.get('/reports', { params })
 }
 
-export function createReport(periodStart, periodEnd) {
-  return apiClient.post('/reports', { reporting_period_start: periodStart, reporting_period_end: periodEnd })
+export function createReport(periodStart, periodEnd, reportType = 'esg_management_report') {
+  return apiClient.post('/reports', { reporting_period_start: periodStart, reporting_period_end: periodEnd, report_type: reportType })
 }
 
 export function getReport(reportId) {
@@ -60,6 +60,6 @@ export function publishReport(reportId, versionId) {
   return apiClient.post(`/reports/${reportId}/versions/${versionId}/publish`)
 }
 
-export function getDownloadUrl(reportId, versionId) {
-  return apiClient.get(`/reports/${reportId}/versions/${versionId}/download`)
+export function getDownloadUrl(reportId, versionId, format = 'docx') {
+  return apiClient.get(`/reports/${reportId}/versions/${versionId}/download`, { params: { format } })
 }

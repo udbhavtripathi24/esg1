@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { FileText, CheckCircle2, Search, Info, Sparkles } from 'lucide-react'
+import { FileText, CheckCircle2, Search, Info } from 'lucide-react'
 import PageHeader from './PageHeader.jsx'
 import { Button, Card, Field, Select, StatusPill, EmptyState } from './ui.jsx'
 import FileDropzone from './FileDropzone.jsx'
@@ -13,12 +13,12 @@ import {
   useDepartments,
 } from '../hooks/useDatasets.js'
 import { getDatasetVersions } from '../api/datasets.js'
-import { domainGuidance, questionBank } from '../data/mockData'
+import { domainGuidance } from '../data/mockData'
+import BrsrWorkspace from './brsr/BrsrWorkspace.jsx'
 
 const YEARS = ['2026', '2025']
 const PERIODS = ['Q2 2026', 'Q1 2026']
 const DOMAINS = Object.keys(domainGuidance)
-const CATEGORIES = Object.keys(questionBank)
 
 // Confirmed against the real seeded upload_types (scripts_seed_upload_types.py,
 // whose own comment states "Aligned with stakeholder's MVP KPI scope: Waste,
@@ -104,7 +104,7 @@ export default function UploadDataView() {
       )}
 
       <div className="flex items-center gap-6 border-b border-surface-border mb-5">
-        {['Quantitative', 'Qualitative'].map((t) => (
+        {['Quantitative', 'BRSR'].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -120,10 +120,11 @@ export default function UploadDataView() {
       {tab === 'Quantitative' && (
         <QuantitativeTab user={user} pushToast={pushToast} />
       )}
-      {tab === 'Qualitative' && (
-        <QualitativeTab pushToast={pushToast} />
+      {tab === 'BRSR' && (
+        <BrsrWorkspace pushToast={pushToast} />
       )}
 
+      {tab === 'Quantitative' && (
       <Card title="Uploaded Datasets" action={
         <div className="relative w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-300" />
@@ -177,6 +178,7 @@ export default function UploadDataView() {
         </div>
         )}
       </Card>
+      )}
     </div>
   )
 }
@@ -409,160 +411,6 @@ function QuantitativeTab({ user, pushToast }) {
         <p className="text-[10px] font-medium text-ink-900 mb-2">Required Columns</p>
         <ul className="space-y-1.5 text-[8px] text-ink-700 list-disc pl-4 mb-4">
           {guidance.columns.map((c) => <li key={c}>{c}</li>)}
-        </ul>
-      </Card>
-    </div>
-  )
-}
-
-/**
- * Frontend-only prototype for manager review. Clicking an option gives
- * real, visible feedback (a toast) and closes the menu, but does not
- * call any real AI service -- that's real backend work, deliberately
- * held back until this prototype is approved.
- *
- * Note on "Shorten": the reference mockup's own description text for
- * this option was identical to "Improve Writing" (an apparent
- * copy-paste slip in the source design) -- using an accurate
- * description here instead of reproducing that mismatch.
- */
-const AI_WRITING_OPTIONS = [
-  { key: 'improve', label: 'Improve Writing', description: 'Fix grammar, spelling and sentence structure' },
-  { key: 'rephrase', label: 'Rephrase', description: 'Clearer, structured and more professional' },
-  { key: 'expand', label: 'Expand', description: 'Turn notes into a complete response' },
-  { key: 'shorten', label: 'Shorten', description: 'Make the response more concise' },
-]
-
-function AiWritingAssistant({ pushToast }) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="relative inline-block">
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full right-0 mb-2 w-64 bg-white border border-brand-green/30 rounded-lg shadow-lg z-20 overflow-hidden">
-            <div className="flex items-center gap-1.5 px-3.5 py-2.5 border-b border-surface-border">
-              <Sparkles size={13} className="text-brand-green" />
-              <span className="text-xs font-semibold text-ink-900">AI Writing Assistant</span>
-            </div>
-            <div className="py-1.5">
-              {AI_WRITING_OPTIONS.map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => {
-                    setOpen(false)
-                    pushToast(`"${opt.label}" will apply once AI is enabled for this workspace.`)
-                  }}
-                  className="w-full text-left px-3.5 py-2 hover:bg-surface-muted/60 transition-colors"
-                >
-                  <p className="text-xs font-semibold text-ink-900">{opt.label}</p>
-                  <p className="text-[10px] text-ink-500 mt-0.5">{opt.description}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-brand-green/40 text-brand-green text-[11px] font-medium hover:bg-brand-green/5 transition-colors"
-      >
-        <Sparkles size={12} /> Improve with AI
-      </button>
-    </div>
-  )
-}
-
-function QualitativeTab({ pushToast }) {
-  const [category, setCategory] = useState(CATEGORIES[0])
-  const [selectedQuestion, setSelectedQuestion] = useState(0)
-  const [response, setResponse] = useState('')
-  const [supportingDocs, setSupportingDocs] = useState([])
-
-  const bank = questionBank[category]
-
-  function handleCategoryChange(newCategory) {
-    setCategory(newCategory)
-    setSelectedQuestion(0)
-    setResponse('')
-  }
-
-  function submit(status) {
-    pushToast(status === 'draft' ? 'Saved as draft.' : 'Qualitative response submitted for review.')
-    setResponse('')
-    setSupportingDocs([])
-  }
-
-  return (
-    <div className="grid lg:grid-cols-[1fr_300px] gap-4 mb-4">
-      <div className="space-y-4">
-        <Card>
-          <div className="max-w-sm mb-5">
-            <Field label="Question Category">
-              <Select value={category} onChange={(e) => handleCategoryChange(e.target.value)}>
-                {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-              </Select>
-            </Field>
-          </div>
-
-          <p className="text-[8px] font-medium text-ink-900 mb-2">Select Question</p>
-          <div className="space-y-2">
-            {bank.questions.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => setSelectedQuestion(i)}
-                className={`w-full text-left px-4 py-3 rounded-md border text-[10px] transition-colors ${
-                  selectedQuestion === i ? 'border-brand-green bg-brand-green/5 text-ink-900' : 'border-surface-border text-ink-700 hover:border-ink-300'
-                }`}
-              >
-                {i + 1}. {q}
-              </button>
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <p className="text-xs font-semibold text-ink-900 mb-1">Your Response</p>
-          <p className="text-[10px] text-ink-500 mb-2">{bank.questions[selectedQuestion]}</p>
-          <textarea
-            value={response}
-            onChange={(e) => setResponse(e.target.value)}
-            rows={5}
-            placeholder="Enter your narrative response here. Reference specific programs, data or governance structure where applicable......."
-            className="w-full px-3 py-2.5 rounded-md border border-surface-border text-sm placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20"
-          />
-          <div className="flex items-center justify-between mt-1.5">
-            <p className="text-[9px] text-ink-300">{response.length} characters</p>
-            <AiWritingAssistant pushToast={pushToast} />
-          </div>
-        </Card>
-
-        <Card>
-          <p className="text-xs font-semibold text-ink-900 mb-1">Supporting Documents</p>
-          <p className="text-[10px] text-ink-500 mb-2">Optional — utility bills, meter certifications, audit evidence</p>
-          <FileDropzone
-            files={supportingDocs}
-            onFilesChange={setSupportingDocs}
-            accept=".pdf,.doc,.docx,.jpg,.png,.zip"
-            hint="PDF, Word, images and ZIP — up to 100 MB total"
-            compact
-          />
-        </Card>
-
-        <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={() => submit('draft')}>Save as draft</Button>
-          <Button onClick={() => submit('submit')}>Submit for Review</Button>
-        </div>
-      </div>
-
-      <Card title="Response Guidance" icon={Info}>
-        <p className="text-[10px] font-medium text-ink-900 mb-2">Category</p>
-        <span className="inline-block px-2.5 py-1 rounded-md border border-brand-green/30 text-brand-greenDark text-[10px] font-medium mb-3">{category}</span>
-        <p className="text-[8px] text-ink-700 mb-4 leading-relaxed">{bank.guidance}</p>
-        <p className="text-[10px] font-medium text-ink-900 mb-2">Tips for strong responses</p>
-        <ul className="space-y-1.5 text-[8px] text-ink-700 list-disc pl-4">
-          {bank.tips.map((t) => <li key={t}>{t}</li>)}
         </ul>
       </Card>
     </div>
