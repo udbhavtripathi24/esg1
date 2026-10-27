@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { AlertCircle, AlertTriangle, MessageSquare, Plus, Trash2, Calculator, History } from 'lucide-react'
+import { AlertCircle, AlertTriangle, MessageSquare, Plus, Trash2, Calculator, History, Database, ArrowRight } from 'lucide-react'
 import AiWritingAssistant from '../AiWritingAssistant.jsx'
-import { fillLabels, fmtNumber, displayFor, isComputedCell, NUMERIC_KINDS } from './format.js'
+import {
+  fillLabels, fmtNumber, displayFor, isComputedCell, isDerivedCell, isDerivedField, isFullyDerived, NUMERIC_KINDS,
+} from './format.js'
 
 /**
  * One BRSR question, rendered from its question-bank definition.
@@ -11,6 +13,10 @@ import { fillLabels, fmtNumber, displayFor, isComputedCell, NUMERIC_KINDS } from
  * numbers that go into the Word report. While an edit is still unsaved
  * the computed cells are dimmed, so a stale total is never mistaken for
  * a fresh one.
+ *
+ * Quantitative tables are built from the short annual data form (bank v2):
+ * those cells arrive in `computed` too and are shown read-only, with a link
+ * back to the data area they come from.
  */
 
 const inputCls =
@@ -125,7 +131,25 @@ function YesNoAnswer({ q, value, onChange, disabled }) {
   )
 }
 
-function NumberAnswer({ q, value, onChange, disabled }) {
+function DerivedValue({ children }) {
+  return (
+    <div className="px-2 py-1.5 rounded border border-brand-green/20 bg-brand-green/5 text-[10px] text-ink-900 tabular-nums text-right"
+      title="Built from your annual data">
+      {children}
+    </div>
+  )
+}
+
+function NumberAnswer({ q, value, onChange, disabled, info }) {
+  if (q.derive) {
+    const v = info?.computed?.derived_answer?.value
+    return (
+      <div className="flex items-center gap-2 max-w-[220px]">
+        <div className="flex-1"><DerivedValue>{fmtNumber(v, q.kind === 'percent' ? 'percent' : 'number')}</DerivedValue></div>
+        <span className="text-[10px] text-ink-500">{q.kind === 'percent' ? '%' : q.unit || ''}</span>
+      </div>
+    )
+  }
   return (
     <div className="flex items-center gap-2 max-w-[220px]">
       <Cell kind={q.kind} value={value?.value} onChange={(x) => onChange({ ...value, value: x })} disabled={disabled} />
@@ -134,8 +158,9 @@ function NumberAnswer({ q, value, onChange, disabled }) {
   )
 }
 
-function FieldsAnswer({ q, value, onChange, disabled }) {
+function FieldsAnswer({ q, value, onChange, disabled, info }) {
   const f = value?.fields || {}
+  const derived = info?.computed?.derived_answer?.fields || {}
   const set = (key, x) => onChange({ ...value, fields: { ...f, [key]: x } })
   return (
     <div className="grid md:grid-cols-2 gap-x-4 gap-y-3">
@@ -146,14 +171,18 @@ function FieldsAnswer({ q, value, onChange, disabled }) {
             {fd.label}
             {fd.required && !fd.readonly && <span className="text-status-pending">*</span>}
           </label>
-          <Cell
-            kind={fd.kind === 'email' || fd.kind === 'url' ? 'text' : fd.kind}
-            options={fd.options}
-            value={f[fd.key]}
-            onChange={(x) => set(fd.key, x)}
-            disabled={disabled || fd.readonly}
-            placeholder={fd.pattern_hint}
-          />
+          {isDerivedField(q, fd.key) ? (
+            <DerivedValue>{NUMERIC_KINDS.has(fd.kind) ? fmtNumber(derived[fd.key]) : (derived[fd.key] ?? '–')}</DerivedValue>
+          ) : (
+            <Cell
+              kind={fd.kind === 'email' || fd.kind === 'url' ? 'text' : fd.kind}
+              options={fd.options}
+              value={f[fd.key]}
+              onChange={(x) => set(fd.key, x)}
+              disabled={disabled || fd.readonly}
+              placeholder={fd.pattern_hint}
+            />
+          )}
         </div>
       ))}
     </div>
@@ -204,6 +233,14 @@ function TableAnswer({ q, value, onChange, disabled, computed, stale, labels }) 
                 <tr key={r.key} className="border-b border-surface-border last:border-b-0">
                   <td className={`px-2 py-1 border-r border-surface-border ${total ? 'font-semibold text-ink-900' : 'text-ink-700'}`}>{r.label}</td>
                   {q.columns.map((c) => {
+                    if (!total && isDerivedCell(q, c, r)) {
+                      return (
+                        <td key={c.key} title="From your annual data"
+                          className={`px-2 py-1 text-right tabular-nums border-r border-surface-border last:border-r-0 bg-brand-green/5 ${stale ? 'text-ink-300' : 'text-ink-900'}`}>
+                          {fmtNumber(computed?.[r.key]?.[c.key], displayFor(c, r))}
+                        </td>
+                      )
+                    }
                     if (isComputedCell(c, r)) {
                       return (
                         <td key={c.key} title="Calculated automatically"
@@ -225,8 +262,9 @@ function TableAnswer({ q, value, onChange, disabled, computed, stale, labels }) 
           </tbody>
         </table>
       </div>
-      <p className="text-[9px] text-ink-300 mt-1 flex items-center gap-1">
-        <Calculator size={9} /> Grey cells are calculated from your entries{q.unit ? ` · Unit: ${q.unit}` : ''}
+      <p className="text-[9px] text-ink-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        {q.derive && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-brand-green/20" /> Green cells come from the annual data</span>}
+        <span className="flex items-center gap-1"><Calculator size={9} /> Grey cells are calculated{q.unit ? ` · Unit: ${q.unit}` : ''}</span>
       </p>
     </div>
   )
@@ -347,23 +385,128 @@ function GridAnswer({ q, value, onChange, disabled }) {
   )
 }
 
+const FILLABLE_KINDS = new Set(['count', 'number', 'amount'])
+
+/** The short annual form for one data area: figures for the year, grouped,
+ * with the previous year alongside when the client wants to add or correct
+ * it (it is normally carried forward from last year's approved BRSR). */
+function MetricsAnswer({ q, value, onChange, disabled, info, labels, fieldIssues }) {
+  const values = value?.values || {}
+  const py = value?.py || {}
+  const [showPy, setShowPy] = useState(() => Object.keys(py).length > 0)
+  const hidden = new Set(info?.hidden_groups || [])
+  const missing = new Set(info?.missing_fields || [])
+  const visible = q.groups.filter((_, i) => !hidden.has(i))
+  const blanks = visible.flatMap((g) => g.fields).filter((f) => FILLABLE_KINDS.has(f.kind) && (values[f.key] ?? '') === '')
+
+  const setV = (key, x) => onChange({ ...value, values: { ...values, [key]: x }, py })
+  const setPy = (key, x) => onChange({ ...value, values, py: { ...py, [key]: x } })
+  const fillZero = () => {
+    const next = { ...values }
+    for (const f of blanks) next[f.key] = '0'
+    onChange({ ...value, values: next, py })
+  }
+
+  return (
+    <div className="space-y-4 max-w-[860px]">
+      <div className="flex flex-wrap items-center gap-4 text-[10px]">
+        <label className="inline-flex items-center gap-1.5 text-ink-700">
+          <input type="checkbox" checked={showPy} onChange={(e) => setShowPy(e.target.checked)} className="accent-brand-green" />
+          Show {labels?.py || 'previous year'}
+        </label>
+        {!disabled && blanks.length > 0 && (
+          <button type="button" onClick={fillZero} className="text-brand-green hover:text-brand-greenDark font-medium"
+            title="Sets every empty number in this area to 0 — use when the rest genuinely do not apply">
+            Fill {blanks.length} blank{blanks.length > 1 ? 's' : ''} with 0
+          </button>
+        )}
+      </div>
+
+      {q.groups.map((g, gi) => {
+        if (hidden.has(gi)) {
+          return (
+            <p key={g.title} className="text-[9px] text-ink-300 italic">
+              {g.title} — not asked: you reported no workers.
+            </p>
+          )
+        }
+        return (
+          <div key={g.title}>
+            <h4 className="text-[10px] font-semibold text-ink-900 mb-1">{g.title}</h4>
+            {g.note && <p className="text-[9px] text-ink-500 mb-1.5">{g.note}</p>}
+            <div className="border border-surface-border rounded-md divide-y divide-surface-border">
+              <div className="hidden sm:grid grid-cols-[1fr_150px] md:grid-cols-[1fr_150px_150px] gap-2 px-2 py-1 bg-surface-muted text-[9px] font-semibold text-ink-500">
+                <span>Figure</span>
+                <span className="text-right">{labels?.cy || 'Current FY'}</span>
+                {showPy && <span className="text-right hidden md:block">{labels?.py || 'Previous FY'}</span>}
+              </div>
+              {g.fields.map((f) => {
+                const isMissing = missing.has(f.key)
+                const errs = fieldIssues?.[f.key] || []
+                return (
+                  <div key={f.key} className={`px-2 py-1.5 ${isMissing ? 'bg-status-pending/5' : ''}`}>
+                    <div className="grid sm:grid-cols-[1fr_150px] md:grid-cols-[1fr_150px_150px] gap-2 items-center">
+                      <label htmlFor={`m-${f.key}`} className="text-[10px] text-ink-700">
+                        {f.label}
+                        {f.required && <span className="text-status-pending">*</span>}
+                        {f.unit && <span className="text-ink-300"> · {f.unit}</span>}
+                        {f.help && <span className="block text-[9px] text-ink-300">{f.help}</span>}
+                      </label>
+                      <div id={`m-${f.key}`}>
+                        <Cell kind={f.kind} options={f.options} value={values[f.key]} onChange={(x) => setV(f.key, x)} disabled={disabled} />
+                      </div>
+                      {showPy && (
+                        <div>
+                          <span className="md:hidden text-[9px] text-ink-300">{labels?.py || 'Previous FY'}</span>
+                          <Cell kind={f.kind} options={f.options} value={py[f.key]} onChange={(x) => setPy(f.key, x)} disabled={disabled} />
+                        </div>
+                      )}
+                    </div>
+                    {errs.map((i, n) => (
+                      <p key={n} className={`mt-1 text-[9px] flex items-start gap-1 ${i.level === 'error' ? 'text-status-pending' : 'text-status-review'}`}>
+                        <AlertCircle size={10} className="mt-px shrink-0" />{i.message}
+                      </p>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const RENDERERS = {
   text: TextAnswer, yesno: YesNoAnswer, number: NumberAnswer, fields: FieldsAnswer,
-  table: TableAnswer, rows: RowsAnswer, principle_grid: GridAnswer,
+  table: TableAnswer, rows: RowsAnswer, principle_grid: GridAnswer, metrics: MetricsAnswer,
 }
 
 // ---------------------------------------------------------------------------
 
 export default function BrsrQuestion({
   q, value, info, comments, labels, editable, dirty, onChange, pushToast,
-  reviewComment, onReviewComment, onShowHistory,
+  reviewComment, onReviewComment, onShowHistory, areaTitles, onOpenSection,
 }) {
   const [showNote, setShowNote] = useState(!!value?.note)
   const Renderer = RENDERERS[q.type]
-  const na = !!value?.na
-  const issues = info?.issues || []
-  const hasError = issues.some((i) => i.level === 'error')
-  const status = info?.answered ? 'answered' : info?.required ? 'required' : 'optional'
+  const fullyDerived = isFullyDerived(q)
+  const isMetrics = q.type === 'metrics'
+  const naAllowed = !fullyDerived && !isMetrics
+  const na = naAllowed && !!value?.na
+  const allIssues = info?.issues || []
+  // Metric issues are shown beside their field; the rest under the question.
+  const fieldIssues = {}
+  const issues = []
+  for (const i of allIssues) {
+    const m = isMetrics && /^(values|py)\.(.+)$/.exec(i.path || '')
+    if (m) (fieldIssues[m[2]] ||= []).push(i)
+    else issues.push(i)
+  }
+  const hasError = allIssues.some((i) => i.level === 'error')
+  const status = fullyDerived ? 'derived' : info?.answered ? 'answered' : info?.required ? 'required' : 'optional'
+  const missingCount = info?.missing_fields?.length || 0
 
   return (
     <div id={`q-${q.id}`} className={`bg-white border rounded-lg p-4 ${hasError ? 'border-status-pending/40' : 'border-surface-border'}`}>
@@ -376,9 +519,16 @@ export default function BrsrQuestion({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {dirty && <span className="text-[9px] text-status-review">Unsaved</span>}
+          {q.departments?.length > 0 && !isMetrics && (
+            <span className="hidden md:inline text-[9px] text-ink-300 max-w-[160px] truncate" title={`Owner: ${q.departments.join(', ')}`}>
+              {q.departments.join(' · ')}
+            </span>
+          )}
           <span className={`text-[9px] px-1.5 py-0.5 rounded ${
-            status === 'answered' ? 'bg-status-approved/10 text-status-approved' : status === 'required' ? 'bg-ink-100 text-ink-500' : 'text-ink-300'}`}>
-            {status === 'answered' ? 'Answered' : status === 'required' ? 'Required' : 'Optional'}
+            status === 'answered' ? 'bg-status-approved/10 text-status-approved' : status === 'derived' ? 'bg-brand-green/10 text-brand-greenDark'
+              : status === 'required' ? 'bg-ink-100 text-ink-500' : 'text-ink-300'}`}>
+            {status === 'answered' ? 'Answered' : status === 'derived' ? 'Auto-filled' : status === 'required'
+              ? (isMetrics && missingCount ? `${missingCount} to fill` : 'Required') : 'Optional'}
           </span>
           {onShowHistory && info?.revision && (
             <button type="button" onClick={() => onShowHistory(q.id)} title="Change history" className="text-ink-300 hover:text-ink-700"><History size={12} /></button>
@@ -387,6 +537,22 @@ export default function BrsrQuestion({
       </div>
 
       {q.guidance && <p className="text-[9px] text-ink-500 bg-surface-muted rounded px-2 py-1.5 mb-3">{q.guidance}</p>}
+
+      {q.derived_from?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] text-brand-greenDark bg-brand-green/5 rounded px-2 py-1.5 mb-3">
+          <Database size={10} className="shrink-0" />
+          <span>{fullyDerived ? 'Built automatically from' : 'Figures come from'} Annual data:</span>
+          {q.derived_from.map((code) => (
+            onOpenSection ? (
+              <button key={code} type="button" onClick={() => onOpenSection(code)}
+                className="inline-flex items-center gap-0.5 font-medium underline decoration-dotted hover:text-ink-900">
+                {areaTitles?.[code] || code}<ArrowRight size={9} />
+              </button>
+            ) : <span key={code} className="font-medium">{areaTitles?.[code] || code}</span>
+          ))}
+          {!fullyDerived && <span className="text-ink-500">· the other columns are yours to fill</span>}
+        </div>
+      )}
 
       {comments?.length > 0 && (
         <div className="mb-3 space-y-1.5">
@@ -407,14 +573,15 @@ export default function BrsrQuestion({
           ) : (value?.na_reason || '')}
         </div>
       ) : (
-        <Renderer q={q} value={value} onChange={onChange} disabled={!editable} computed={info?.computed} stale={dirty} labels={labels} pushToast={pushToast} />
+        <Renderer q={q} value={value} onChange={onChange} disabled={!editable || fullyDerived} computed={info?.computed} stale={dirty}
+          labels={labels} pushToast={pushToast} info={info} fieldIssues={fieldIssues} />
       )}
 
       <Issues issues={issues} />
 
       {(editable || value?.note) && (
         <div className="flex items-center gap-4 mt-3 pt-3 border-t border-surface-border">
-          {editable && (
+          {editable && naAllowed && (
             <label className="inline-flex items-center gap-1.5 text-[10px] text-ink-500">
               <input type="checkbox" checked={na} onChange={(e) => onChange(e.target.checked ? { ...value, na: true } : { ...value, na: false, na_reason: undefined })} className="accent-brand-green" />
               Not applicable

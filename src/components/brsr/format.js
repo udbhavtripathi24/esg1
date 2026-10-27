@@ -56,3 +56,43 @@ export function fyPeriod(fy) {
   const s = Number(fy.slice(0, 4))
   return { start: `${s}-04-01`, end: `${s + 1}-03-31` }
 }
+
+// ---------------------------------------------------------------------------
+// Annual data (short form) and derived questions — bank v2
+// ---------------------------------------------------------------------------
+
+/** Navigation label for a section: data areas by title, SEBI sections by code. */
+export function sectionName(code, meta) {
+  if (meta?.kind === 'data') return meta.title
+  return code.startsWith('P') ? `Principle ${code.slice(1)}` : `Section ${code}`
+}
+
+export function sectionSubtitle(code, meta) {
+  if (meta?.kind === 'data') return (meta.departments || []).join(' · ')
+  return code.startsWith('P') ? meta?.statement : meta?.title?.split(': ')[1]
+}
+
+/** The platform builds this whole question from the annual data. */
+export function isFullyDerived(q) {
+  return !!q?.derive && !q.required
+}
+
+/** Mirrors engine.derive_key: a table cell filled from the annual data.
+ * Only current- and previous-year columns are derived. */
+export function isDerivedCell(q, col, row) {
+  if (!q?.derive || !row) return false
+  const period = col.period
+  if (period && period !== 'cy' && period !== 'py') return false
+  const base = period ? col.key.slice(period.length + 1) : col.key
+  return `${row.key}.${base}` in q.derive
+}
+
+/** A field of a "fields" question filled from the annual data. */
+export function isDerivedField(q, key) {
+  return !!q?.derive && `fields.${key}` in q.derive
+}
+
+/** Does this question (or section) concern the given department? */
+export function forDepartment(item, dept) {
+  return !dept || (item?.departments || []).includes(dept)
+}

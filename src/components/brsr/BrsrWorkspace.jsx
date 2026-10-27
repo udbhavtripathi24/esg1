@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   FileText, Download, Send, Undo2, Unlock, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ClipboardList,
-  X, RefreshCw,
+  X, RefreshCw, Filter,
 } from 'lucide-react'
 import { Button, Card, Field, Select, ProgressBar, EmptyState } from '../ui.jsx'
 import LoadingState from '../LoadingState.jsx'
@@ -16,7 +16,7 @@ import {
 import { downloadPreview } from '../../api/brsr.js'
 import BrsrQuestion from './BrsrQuestion.jsx'
 import StatusBadge from './StatusBadge.jsx'
-import { financialYearOptions } from './format.js'
+import { financialYearOptions, sectionName, sectionSubtitle, forDepartment } from './format.js'
 
 const AUTOSAVE_MS = 1200
 
@@ -25,10 +25,13 @@ function errMessage(err, fallback) {
 }
 
 /**
- * BRSR questionnaire — where the client enters its BRSR, section by
- * section. Answers autosave; every section is submitted for review on
- * its own; the report is generated from Reporting once all 11 sections
- * are approved.
+ * BRSR questionnaire — where the client enters its BRSR.
+ *
+ * Two parts: a short Annual data form (figures per department area, from
+ * which every quantitative BRSR table is built) and the BRSR disclosures
+ * (the questions only people can answer). Answers autosave; every section
+ * is submitted for review on its own; the report is generated from
+ * Reporting once all sections are approved.
  */
 export default function BrsrWorkspace({ pushToast }) {
   const { user, hasPermission } = useAuth()
@@ -102,11 +105,12 @@ function StartBrsr({ companyId, canCreate, onCreated, compact = false, existing 
   if (compact) return body
   return (
     <Card title="Business Responsibility and Sustainability Report" icon={ClipboardList}
-      subtitle="SEBI's BRSR format — Section A, Section B and Principles 1–9. Fill it here; the report is generated in Reporting once every section is approved.">
+      subtitle="SEBI's BRSR format. Fill it here; the report is generated in Reporting once every section is approved.">
       <ul className="text-[10px] text-ink-700 space-y-1 mb-4 list-disc pl-4">
+        <li>Start with the <b>Annual data</b>: a short set of yearly figures per department — headcount, wages, energy, water, waste, finance. Every BRSR table is built from them.</li>
+        <li>Then answer the <b>BRSR disclosures</b> — policies, processes and narrative. Filter by department to see only your part.</li>
         <li>Enter raw numbers only. Totals, percentages and intensities are calculated for you.</li>
-        <li>Answers save automatically. Each section is submitted for review separately.</li>
-        <li>Last year's approved figures fill the “Previous FY” columns automatically.</li>
+        <li>Answers save automatically. Each section is submitted for review separately. Last year's approved figures fill the previous-year column.</li>
       </ul>
       {body}
     </Card>
@@ -116,7 +120,8 @@ function StartBrsr({ companyId, canCreate, onCreated, compact = false, existing 
 function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
   const bankQuery = useQuestionBank()
   const overviewQuery = useResponseSet(setId)
-  const [code, setCode] = useState('A')
+  const [code, setCode] = useState(null)
+  const [dept, setDept] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [downloading, setDownloading] = useState(null)
   const { hasPermission } = useAuth()
@@ -127,8 +132,18 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
   }
   const bank = bankQuery.data
   const ov = overviewQuery.data
+  const total = ov.sections.length
   const approved = ov.sections.filter((s) => s.status === 'approved').length
   const sectionMeta = Object.fromEntries(bank.sections.map((s) => [s.code, s]))
+  const areaTitles = Object.fromEntries(bank.sections.filter((s) => s.kind === 'data').map((s) => [s.code, s.title]))
+  // Sections with anything for the chosen department
+  const deptSections = new Set(bank.questions.filter((q) => forDepartment(q, dept)).map((q) => q.section))
+  const shown = ov.sections.filter((s) => !dept || deptSections.has(s.code))
+  const activeCode = shown.some((s) => s.code === code) ? code : shown[0]?.code || ov.sections[0].code
+  const groups = [
+    { kind: 'data', label: 'Annual data', hint: 'Short yearly figures — they build the BRSR tables' },
+    { kind: 'disclosure', label: 'BRSR disclosures', hint: 'Section A, Section B, Principles 1–9' },
+  ]
 
   async function preview(fmt) {
     setDownloading(fmt)
@@ -155,7 +170,7 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
             </div>
             <div>
               <p className="text-[10px] text-ink-500">{ov.company_name}</p>
-              <p className="text-sm font-semibold text-ink-900">{approved} of 11 sections approved</p>
+              <p className="text-sm font-semibold text-ink-900">{approved} of {total} sections approved</p>
               {ov.carried_forward && <p className="text-[9px] text-ink-500">Previous-year figures carried forward from last year's approved BRSR</p>}
             </div>
           </div>
@@ -177,42 +192,64 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
               onCreated={(id) => { setShowNew(false); onSelectSet(id) }} />
           </div>
         )}
-        <div className="mt-3"><ProgressBar pct={(approved / 11) * 100} /></div>
+        <div className="mt-3"><ProgressBar pct={(approved / total) * 100} /></div>
       </Card>
 
       <div className="grid lg:grid-cols-[230px_1fr] gap-4 items-start">
-        <nav className="bg-white border border-surface-border rounded-lg overflow-hidden lg:sticky lg:top-4">
-          {ov.sections.map((s) => {
-            const meta = sectionMeta[s.code]
-            const pct = s.required ? Math.round((s.required_answered / s.required) * 100) : 100
-            return (
-              <button key={s.code} type="button" onClick={() => setCode(s.code)}
-                className={`w-full text-left px-3 py-2.5 border-b border-surface-border last:border-b-0 transition-colors ${
-                  code === s.code ? 'bg-brand-green/10' : 'hover:bg-surface-muted/60'}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-[11px] ${code === s.code ? 'font-semibold text-ink-900' : 'text-ink-700'}`}>
-                    {s.code.startsWith('P') ? `Principle ${s.code.slice(1)}` : `Section ${s.code}`}
-                  </span>
-                  <StatusBadge status={s.status} />
+        <div className="lg:sticky lg:top-4 space-y-2 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+          <div className="bg-white border border-surface-border rounded-lg px-3 py-2">
+            <label className="flex items-center gap-1.5 text-[9px] text-ink-500 mb-1" htmlFor="brsr-dept"><Filter size={10} /> Department</label>
+            <Select id="brsr-dept" value={dept} onChange={(e) => setDept(e.target.value)}>
+              <option value="">All departments</option>
+              {(bank.departments || []).map((d) => <option key={d} value={d}>{d}</option>)}
+            </Select>
+          </div>
+          <nav className="bg-white border border-surface-border rounded-lg overflow-hidden" aria-label="BRSR sections">
+            {groups.map((g) => {
+              const items = shown.filter((s) => (sectionMeta[s.code]?.kind || 'disclosure') === g.kind)
+              if (!items.length) return null
+              const done = items.filter((s) => s.status === 'approved').length
+              return (
+                <div key={g.kind}>
+                  <div className="px-3 py-2 bg-surface-muted border-b border-surface-border">
+                    <p className="text-[10px] font-semibold text-ink-900 flex justify-between">{g.label}<span className="font-normal text-ink-500 tabular-nums">{done}/{items.length}</span></p>
+                    <p className="text-[9px] text-ink-500">{g.hint}</p>
+                  </div>
+                  {items.map((s) => {
+                    const meta = sectionMeta[s.code]
+                    const pct = s.required ? Math.round((s.required_answered / s.required) * 100) : 100
+                    const active = activeCode === s.code
+                    return (
+                      <button key={s.code} type="button" onClick={() => setCode(s.code)} aria-current={active ? 'true' : undefined}
+                        className={`w-full text-left px-3 py-2.5 border-b border-surface-border transition-colors ${
+                          active ? 'bg-brand-green/10' : 'hover:bg-surface-muted/60'}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-[11px] truncate ${active ? 'font-semibold text-ink-900' : 'text-ink-700'}`}>{sectionName(s.code, meta)}</span>
+                          <StatusBadge status={s.status} />
+                        </div>
+                        <p className="text-[9px] text-ink-500 truncate mt-0.5">{sectionSubtitle(s.code, meta)}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <div className="flex-1"><ProgressBar pct={pct} height="h-1" /></div>
+                          <span className="text-[9px] text-ink-500 tabular-nums">{s.required_answered}/{s.required}</span>
+                          {s.errors > 0 && <AlertCircle size={10} className="text-status-pending" />}
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
-                <p className="text-[9px] text-ink-500 truncate mt-0.5">{s.code.startsWith('P') ? meta?.statement : meta?.title.split(': ')[1]}</p>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <div className="flex-1"><ProgressBar pct={pct} height="h-1" /></div>
-                  <span className="text-[9px] text-ink-500 tabular-nums">{s.required_answered}/{s.required}</span>
-                  {s.errors > 0 && <AlertCircle size={10} className="text-status-pending" />}
-                </div>
-              </button>
-            )
-          })}
-        </nav>
+              )
+            })}
+          </nav>
+        </div>
 
-        <SectionPanel key={code} setId={setId} code={code} bank={bank} labels={ov.fy_labels} pushToast={pushToast} />
+        <SectionPanel key={activeCode} setId={setId} code={activeCode} bank={bank} labels={ov.fy_labels} pushToast={pushToast}
+          dept={dept} areaTitles={areaTitles} onOpenSection={(c) => { setDept(''); setCode(c); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
       </div>
     </div>
   )
 }
 
-function SectionPanel({ setId, code, bank, labels, pushToast }) {
+function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, onOpenSection }) {
   const qc = useQueryClient()
   const { hasPermission } = useAuth()
   const sectionQuery = useSection(setId, code)
@@ -233,7 +270,8 @@ function SectionPanel({ setId, code, bank, labels, pushToast }) {
   const inFlight = useRef(false)
 
   const meta = bank.sections.find((s) => s.code === code)
-  const questions = useMemo(() => bank.questions.filter((q) => q.section === code), [bank, code])
+  const questions = useMemo(
+    () => bank.questions.filter((q) => q.section === code && forDepartment(q, dept)), [bank, code, dept])
   const detail = sectionQuery.data
   const canEdit = !!detail?.editable && hasPermission('dataset:create')
 
@@ -323,13 +361,14 @@ function SectionPanel({ setId, code, bank, labels, pushToast }) {
     setConfirmWarnings(false)
     if (dirty) await doSave()
     submit.mutate({ setId, code }, {
-      onSuccess: () => pushToast(`${meta.code.startsWith('P') ? 'Principle ' + meta.code.slice(1) : 'Section ' + meta.code} submitted for review.`),
+      onSuccess: () => pushToast(`${sectionName(meta.code, meta)} submitted for review.`),
       onError: (e) => pushToast(errMessage(e, 'Could not submit.')),
     })
   }
 
   let lastGroup = null
   const title = code.startsWith('P') ? `${meta.title}: ${meta.statement}` : meta.title
+  const hiddenByDept = bank.questions.filter((q) => q.section === code).length - questions.length
 
   return (
     <div className="space-y-3 min-w-0">
@@ -341,6 +380,12 @@ function SectionPanel({ setId, code, bank, labels, pushToast }) {
             </div>
             <h2 className="text-[13px] font-semibold text-ink-900 leading-snug">{title}</h2>
             {meta.intro && <p className="text-[10px] text-ink-500 mt-1">{meta.intro}</p>}
+            {meta.kind === 'data' && meta.departments?.length > 0 && (
+              <p className="text-[9px] text-ink-500 mt-1">Owned by: <b className="font-medium text-ink-700">{meta.departments.join(', ')}</b></p>
+            )}
+            {hiddenByDept > 0 && (
+              <p className="text-[9px] text-ink-500 mt-1">Showing {dept}'s questions · {hiddenByDept} other question{hiddenByDept > 1 ? 's' : ''} in this section belong to other departments.</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <SaveIndicator state={saveState} dirty={dirty} error={saveError} onRetry={doSave} />
@@ -424,7 +469,7 @@ function SectionPanel({ setId, code, bank, labels, pushToast }) {
       </div>
 
       {questions.map((q) => {
-        const header = q.group !== lastGroup ? q.group : null
+        const header = q.group !== lastGroup && q.type !== 'metrics' ? q.group : null
         lastGroup = q.group
         const info = detail.answers[q.id]
         const value = q.id in drafts ? drafts[q.id] : info?.value
@@ -441,6 +486,7 @@ function SectionPanel({ setId, code, bank, labels, pushToast }) {
               q={q} value={value} info={info} comments={commentsByQ[q.id]} labels={labels}
               editable={canEdit && saveState !== 'conflict'} dirty={q.id in drafts}
               onChange={(v) => change(q.id, v)} pushToast={pushToast} onShowHistory={setHistoryFor}
+              areaTitles={areaTitles} onOpenSection={onOpenSection}
             />
           </div>
         )

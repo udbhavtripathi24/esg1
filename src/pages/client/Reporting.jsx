@@ -17,7 +17,7 @@ import {
 import { useResponseSets, useResponseSet } from '../../hooks/useBrsr.js'
 import { downloadPreview } from '../../api/brsr.js'
 import StatusBadge from '../../components/brsr/StatusBadge.jsx'
-import { fyPeriod } from '../../components/brsr/format.js'
+import { fyPeriod, sectionName } from '../../components/brsr/format.js'
 
 /**
  * Reporting. Two report types, both real:
@@ -109,6 +109,7 @@ function BrsrReporting() {
   const { start, end } = fy ? fyPeriod(fy) : {}
   const brsrReports = (reportsQuery.data?.items || []).filter((r) => r.report_type === 'brsr')
   const approved = ov ? ov.sections.filter((s) => s.status === 'approved').length : 0
+  const totalSections = ov?.sections.length || 0
   const existing = brsrReports.find((r) => r.reporting_period_start === start)
   const canGenerate = ov?.all_approved && hasPermission('report:generate') && !existing
 
@@ -131,7 +132,7 @@ function BrsrReporting() {
                 </Select>
               </Field>
             </div>
-            <p className="text-2xl font-semibold text-ink-900 tabular-nums">{approved}/11 <span className="text-sm font-normal text-ink-500">sections approved</span></p>
+            <p className="text-2xl font-semibold text-ink-900 tabular-nums">{approved}/{totalSections || '–'} <span className="text-sm font-normal text-ink-500">sections approved</span></p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" size="sm" onClick={() => preview('docx')} disabled={!!previewing}>
@@ -141,7 +142,7 @@ function BrsrReporting() {
               {previewing === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Draft PDF
             </Button>
             <Button size="sm" disabled={!canGenerate || createMutation.isPending}
-              title={existing ? 'A BRSR report for this year already exists — use "Generate new version" on it' : ov?.all_approved ? '' : 'All 11 sections must be approved'}
+              title={existing ? 'A BRSR report for this year already exists — use "Generate new version" on it' : ov?.all_approved ? '' : 'Every section must be approved first'}
               onClick={() => createMutation.mutate({ periodStart: start, periodEnd: end, reportType: 'brsr' }, {
                 onSuccess: (r) => setSelectedReportId(r.public_id),
               })}>
@@ -149,17 +150,26 @@ function BrsrReporting() {
             </Button>
           </div>
         </div>
-        <ProgressBar pct={(approved / 11) * 100} />
-        {ov && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11 gap-2 mt-4">
-            {ov.sections.map((s) => (
-              <div key={s.code} className="border border-surface-border rounded-md px-2 py-2">
-                <p className="text-[10px] font-semibold text-ink-900">{s.code.startsWith('P') ? `P${s.code.slice(1)}` : `Sec ${s.code}`}</p>
-                <div className="mt-1"><StatusBadge status={s.status} /></div>
+        <ProgressBar pct={totalSections ? (approved / totalSections) * 100 : 0} />
+        {ov && [['data', 'Annual data'], ['disclosure', 'BRSR disclosures']].map(([kind, label]) => {
+          const items = ov.sections.filter((s) => (s.kind || 'disclosure') === kind)
+          if (!items.length) return null
+          return (
+            <div key={kind} className="mt-4">
+              <p className="text-[10px] font-semibold text-ink-700 mb-1.5">
+                {label} <span className="font-normal text-ink-500 tabular-nums">· {items.filter((s) => s.status === 'approved').length}/{items.length} approved</span>
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-2">
+                {items.map((s) => (
+                  <div key={s.code} className="border border-surface-border rounded-md px-2 py-2 min-w-0">
+                    <p className="text-[10px] font-semibold text-ink-900 truncate" title={s.title}>{sectionName(s.code, s)}</p>
+                    <div className="mt-1"><StatusBadge status={s.status} /></div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )
+        })}
         {previewError && <p className="text-[10px] text-status-pending mt-3">{previewError}</p>}
         {createMutation.isError && <p className="text-[10px] text-status-pending mt-3">{errMessage(createMutation.error, 'Could not generate the report.')}</p>}
         <p className="text-[9px] text-ink-500 mt-3">Draft previews are watermarked “DRAFT — not for filing” and are never stored.</p>

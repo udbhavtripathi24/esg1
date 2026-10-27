@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useEffect } from 'react'
+import { useMemo, useState, useRef, useEffect, useId } from 'react'
 
 // The district boundaries are ~440 KB of JSON. Importing them statically
 // put that in the main bundle for every user, including the large
@@ -118,7 +118,17 @@ function build(geo) {
     b.x1 = Math.max(b.x1, p.x1); b.y1 = Math.max(b.y1, p.y1)
   }
 
-  _built = { paths, stateOutlines, stateBox, project }
+  // Lat/lon grid. In a Mercator projection meridians and parallels are
+  // both straight lines -- x depends only on longitude, y only on
+  // latitude -- so each one is a single coordinate, not a path.
+  const graticule = {
+    meridians: [],
+    parallels: [],
+  }
+  for (let lon = 70; lon <= 95; lon += 5) graticule.meridians.push({ v: lon, x: project([lon, 20])[0] })
+  for (let lat = 10; lat <= 35; lat += 5) graticule.parallels.push({ v: lat, y: project([80, lat])[1] })
+
+  _built = { paths, stateOutlines, stateBox, project, graticule }
   return _built
 }
 
@@ -144,6 +154,15 @@ function boxToView(b, padRatio = 0.18) {
   return clampView({ x: cx - w / 2, y: cy - h / 2, w, h })
 }
 
+/**
+ * variant:
+ *   'choropleth' -- the land itself carries the data (district risk map),
+ *                   so it is coloured and the basemap stays out of the way.
+ *   'basemap'    -- the land is only context and the markers carry the
+ *                   data (asset risk map), so the land gets a proper
+ *                   cartographic treatment: water, graticule, coastline.
+ * Defaults by what was passed in, so neither caller has to think about it.
+ */
 export default function IndiaMap({
   scores = [],
   focusState = null,
@@ -151,7 +170,9 @@ export default function IndiaMap({
   onDistrictClick,
   onAssetClick,
   height = 520,
+  variant,
 }) {
+  const uid = useId().replace(/:/g, '')
   const [hover, setHover] = useState(null)
   const [tip, setTip] = useState({ x: 0, y: 0 })
   const [geo, setGeo] = useState(_built)
@@ -281,6 +302,15 @@ export default function IndiaMap({
     )
   }
 
+  const mode = variant || (assets ? 'basemap' : 'choropleth')
+  const isBasemap = mode === 'basemap'
+
+  // Cool water against warm land reads as a map at a glance, and keeps
+  // every one of these neutrals well clear of the risk ramp so the
+  // basemap can never be mistaken for data.
+  const LAND = isBasemap ? '#FAF9F6' : '#E8EAED'
+  const LAND_DIVIDER = isBasemap ? '#ECE8E0' : '#FFFFFF'
+
   const zoomed = view.w < VIEW_W - 1
   // Keep strokes and markers a constant on-screen size as you zoom in,
   // otherwise borders turn into thick slabs at high zoom.
@@ -307,6 +337,48 @@ export default function IndiaMap({
         onPointerUp={endDrag}
         onPointerLeave={() => { endDrag(); setHover(null) }}
       >
+        <defs>
+          <linearGradient id={`${uid}-water`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#EEF4F7" />
+            <stop offset="100%" stopColor="#DFEAF0" />
+          </linearGradient>
+          {/* Blur radius is scaled by k so the coastline glow stays the
+              same thickness on screen at every zoom level. */}
+          <filter id={`${uid}-halo`} x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation={2.4 * k} />
+          </filter>
+          <filter id={`${uid}-pin`} x="-80%" y="-80%" width="260%" height="260%">
+            <feDropShadow dx="0" dy={1 * k} stdDeviation={1 * k} floodColor="#0F1E0A" floodOpacity="0.3" />
+          </filter>
+        </defs>
+
+        {/* Water. Oversized well past the viewBox so panning to the edge
+            never exposes a bare white corner. */}
+        <rect
+          x={-VIEW_W} y={-VIEW_H}
+          width={VIEW_W * 3} height={VIEW_H * 3}
+          fill={`url(#${uid}-water)`}
+        />
+
+        {isBasemap && (
+          <g pointerEvents="none" stroke="#C5D6DF" strokeWidth={0.4 * k} opacity="0.8">
+            {geo.graticule.meridians.map((m) => (
+              <line key={`m${m.v}`} x1={m.x} y1={-VIEW_H} x2={m.x} y2={VIEW_H * 2} />
+            ))}
+            {geo.graticule.parallels.map((pl) => (
+              <line key={`p${pl.v}`} x1={-VIEW_W} y1={pl.y} x2={VIEW_W * 2} y2={pl.y} />
+            ))}
+          </g>
+        )}
+
+        {/* Coastline glow. Drawn under the land so the country sits on the
+            water rather than floating flat on top of it. */}
+        <g pointerEvents="none" filter={`url(#${uid}-halo)`}>
+          {geo.stateOutlines.map((o) => (
+            <path key={`h${o.key}`} d={o.d} fill="none" stroke="#A9C2CF" strokeWidth={3.2 * k} strokeLinejoin="round" />
+          ))}
+        </g>
+
         <g>
           {geo.paths.map((p) => {
             const s = scoreByKey.get(p.lookupKey)
@@ -315,9 +387,9 @@ export default function IndiaMap({
               <path
                 key={p.key}
                 d={p.d}
-                fill={s ? s.color : '#E8EAED'}
+                fill={s ? s.color : LAND}
                 fillOpacity={dim ? 0.25 : 1}
-                stroke="#FFFFFF"
+                stroke={LAND_DIVIDER}
                 strokeWidth={0.4 * k}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={() => setHover({
@@ -343,7 +415,7 @@ export default function IndiaMap({
               key={o.key}
               d={o.d}
               fill="none"
-              stroke={focusState && o.state === focusState ? '#1F2937' : '#9AA3AE'}
+              stroke={focusState && o.state === focusState ? '#1F2937' : (isBasemap ? '#C8C2B6' : '#9AA3AE')}
               strokeWidth={(focusState && o.state === focusState ? 1.1 : 0.7) * k}
               strokeLinejoin="round"
             />
@@ -352,12 +424,21 @@ export default function IndiaMap({
 
         {assetPoints.length > 0 && (
           <g>
-            {assetPoints.map((a) => (
+            {assetPoints.map((a) => {
+              // Size carries the score as well as colour. The risk ramp runs
+              // green -> yellow -> red, which peaks in brightness at the
+              // middle: Very Low and Very High are within two points of each
+              // other in greyscale, so colour alone fails in print and for a
+              // colour-blind reader. Radius gives a channel that does not.
+              const pct = Math.max(0, Math.min(100, Number(a.score) || 0))
+              const r = (4 + (pct / 100) * 3.4) * k
+              return (
               <g key={a.id}>
-                <circle cx={a.x} cy={a.y} r={9 * k} fill={a.color} fillOpacity={0.25} />
+                <circle cx={a.x} cy={a.y} r={r * 2.2} fill={a.color} fillOpacity={0.15} />
                 <circle
-                  cx={a.x} cy={a.y} r={5 * k}
-                  fill={a.color} stroke="#FFFFFF" strokeWidth={1.5 * k}
+                  cx={a.x} cy={a.y} r={r}
+                  fill={a.color} stroke="#FFFFFF" strokeWidth={1.6 * k}
+                  filter={`url(#${uid}-pin)`}
                   style={{ cursor: 'pointer' }}
                   onMouseEnter={() => setHover({
                     title: a.name,
@@ -372,7 +453,8 @@ export default function IndiaMap({
                   }}
                 />
               </g>
-            ))}
+              )
+            })}
           </g>
         )}
       </svg>

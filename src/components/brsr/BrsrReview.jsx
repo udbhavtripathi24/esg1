@@ -6,25 +6,28 @@ import ErrorState from '../ErrorState.jsx'
 import { useQuestionBank, useReviewQueue, useResponseSet, useSection, useDecideSection } from '../../hooks/useBrsr.js'
 import BrsrQuestion from './BrsrQuestion.jsx'
 import StatusBadge from './StatusBadge.jsx'
+import { sectionName as nameFor } from './format.js'
 
 function errMessage(err, fallback) {
   return err?.data?.error?.message || err?.message || fallback
 }
 
-function sectionName(code) {
-  return code.startsWith('P') ? `Principle ${code.slice(1)}` : `Section ${code}`
+function useSectionMeta() {
+  const bank = useQuestionBank()
+  return useMemo(() => Object.fromEntries((bank.data?.sections || []).map((s) => [s.code, s])), [bank.data])
 }
 
 /** Review queue for submitted BRSR sections (needs dataset:review). */
 export default function BrsrReview({ pushToast }) {
   const queue = useReviewQueue()
+  const sectionMeta = useSectionMeta()
   const [open, setOpen] = useState(null) // {setId, code}
 
   if (open) return <SectionReview {...open} onBack={() => setOpen(null)} pushToast={pushToast} />
 
   return (
     <Card title="BRSR sections awaiting review" icon={ClipboardCheck} padded={false}
-      subtitle="Each section is approved or sent back on its own. The report can be generated once all 11 are approved.">
+      subtitle="Each section is approved or sent back on its own. The report can be generated once every section is approved.">
       {queue.isLoading ? <LoadingState label="Loading…" /> :
        queue.isError ? <ErrorState message={errMessage(queue.error, 'Could not load the review queue.')} onRetry={() => queue.refetch()} /> :
        queue.data.length === 0 ? <div className="p-6"><EmptyState icon={ClipboardCheck} title="Nothing to review" subtitle="Submitted BRSR sections will appear here." /></div> : (
@@ -46,7 +49,7 @@ export default function BrsrReview({ pushToast }) {
                   onClick={() => setOpen({ setId: r.response_set_id, code: r.section })}>
                   <td className="px-5 py-3 font-medium text-ink-900">{r.company_name}</td>
                   <td className="px-2 py-3 text-ink-700">{r.financial_year}</td>
-                  <td className="px-2 py-3 text-ink-700">{sectionName(r.section)}{r.submission_count > 1 ? ` · resubmission ${r.submission_count}` : ''}</td>
+                  <td className="px-2 py-3 text-ink-700">{nameFor(r.section, sectionMeta[r.section])}{r.submission_count > 1 ? ` · resubmission ${r.submission_count}` : ''}</td>
                   <td className="px-2 py-3 text-ink-500">{new Date(r.submitted_at).toLocaleString()}</td>
                   <td className="px-2 py-3 text-ink-700">{r.submitted_by}{r.own_submission && <span className="ml-1 text-ink-300">(you)</span>}</td>
                   <td className="px-5 py-3 text-right"><span className="text-brand-green font-medium">Review →</span></td>
@@ -77,11 +80,13 @@ function SectionReview({ setId, code, onBack, pushToast }) {
   const meta = bank.data.sections.find((s) => s.code === code)
   const commentsList = Object.entries(qComments).filter(([, v]) => v.trim()).map(([question_id, body]) => ({ question_id, body }))
   const awaiting = d.status === 'submitted'
+  const name = nameFor(code, meta)
+  const areaTitles = Object.fromEntries(bank.data.sections.filter((s) => s.kind === 'data').map((s) => [s.code, s.title]))
 
   function send(decision) {
     decide.mutate({ setId, code, decision, note, questionComments: decision === 'changes_requested' ? commentsList : [] }, {
       onSuccess: () => {
-        pushToast(decision === 'approved' ? `${sectionName(code)} approved.` : `Changes requested on ${sectionName(code)}.`)
+        pushToast(decision === 'approved' ? `${name} approved.` : `Changes requested on ${name}.`)
         onBack()
       },
       onError: (e) => pushToast(errMessage(e, 'Could not record the decision.')),
@@ -96,6 +101,7 @@ function SectionReview({ setId, code, onBack, pushToast }) {
       <div className="bg-white border border-surface-border rounded-lg p-4">
         <div className="flex items-center gap-2 mb-1"><StatusBadge status={d.status} /><span className="text-[10px] text-ink-500">{ov.data.company_name} · FY {ov.data.financial_year}</span></div>
         <h2 className="text-[13px] font-semibold text-ink-900">{code.startsWith('P') ? `${meta.title}: ${meta.statement}` : meta.title}</h2>
+        {meta.kind === 'data' && <p className="text-[10px] text-ink-500 mt-1">{meta.intro} Every BRSR table built from these figures is shown in its own section.</p>}
         <p className="text-[10px] text-ink-500 mt-1">Submitted by {d.submitted_by} on {d.submitted_at ? new Date(d.submitted_at).toLocaleString() : '–'}</p>
         {(d.report.warnings.length > 0 || d.report.errors.length > 0) && (
           <div className="mt-2 space-y-1">
@@ -106,13 +112,14 @@ function SectionReview({ setId, code, onBack, pushToast }) {
       </div>
 
       {questions.map((q) => {
-        const header = q.group !== lastGroup ? q.group : null
+        const header = q.group !== lastGroup && q.type !== 'metrics' ? q.group : null
         lastGroup = q.group
         const info = d.answers[q.id]
         return (
           <div key={q.id}>
             {header && <h3 className="text-[11px] font-semibold text-ink-900 mt-4 mb-2 px-1">{header}</h3>}
             <BrsrQuestion q={q} value={info?.value} info={info} labels={ov.data.fy_labels} editable={false} dirty={false}
+              areaTitles={areaTitles}
               comments={d.comments.filter((c) => c.question_id === q.id)}
               reviewComment={awaiting ? qComments[q.id] : undefined}
               onReviewComment={awaiting ? (qid, v) => setQComments((c) => ({ ...c, [qid]: v })) : undefined} />

@@ -61,9 +61,12 @@ export function useSaveAnswers(setId, code) {
         }
         return { ...old, answers, report: res.sections?.[code] || old.report }
       })
-      // Background refresh for derived flags (answered, cross-question
-      // warnings). Safe while typing: unsaved edits live in local state.
-      qc.invalidateQueries({ queryKey: ['brsr', 'section', setId, code] })
+      // Background refresh for derived flags (answered, hidden groups,
+      // missing fields). Every section of the set is invalidated, not just
+      // this one: annual data saved here feeds tables in other sections.
+      // Only the open section refetches now; the rest refetch when opened.
+      // Safe while typing: unsaved edits live in local state.
+      qc.invalidateQueries({ queryKey: ['brsr', 'section', setId] })
       qc.invalidateQueries({ queryKey: ['brsr', 'set', setId] })
     },
   })
