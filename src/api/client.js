@@ -38,12 +38,14 @@ export function getAuthToken() {
  * UI code branches on `status` to distinguish 401/403/404/409/422/500/network.
  */
 export class ApiError extends Error {
-  constructor(message, { status, code = null, field = null, isNetworkError = false } = {}) {
+  constructor(message, { status, code = null, field = null, details = null, data = null, isNetworkError = false } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.field = field
+    this.details = details // structured extras, e.g. row-level errors of a rejected data sheet
+    this.data = data // the full error body (e.g. revision conflicts)
     this.isNetworkError = isNetworkError
   }
 }
@@ -73,6 +75,8 @@ export async function parseResponse(response) {
       status: response.status,
       code: errInfo?.code || null,
       field: errInfo?.field || null,
+      details: errInfo?.details || null,
+      data: data && typeof data === 'object' ? data : null,
     })
   }
   return data

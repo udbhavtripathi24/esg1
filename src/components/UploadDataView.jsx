@@ -15,6 +15,8 @@ import {
 import { getDatasetVersions } from '../api/datasets.js'
 import { domainGuidance } from '../data/mockData'
 import BrsrWorkspace from './brsr/BrsrWorkspace.jsx'
+import DataSheetsTab from './datasheets/DataSheetsTab.jsx'
+import { useDataSheets } from '../hooks/useDatasheets.js'
 
 const YEARS = ['2026', '2025']
 const PERIODS = ['Q2 2026', 'Q1 2026']
@@ -53,7 +55,7 @@ function periodToDateRange(periodLabel) {
 
 export default function UploadDataView() {
   const { user } = useAuth()
-  const [tab, setTab] = useState('Quantitative')
+  const [tab, setTab] = useState('Data sheets')
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState(null)
 
@@ -65,11 +67,21 @@ export default function UploadDataView() {
   // Real datasets — replaces the mock quantitative table entirely.
   const datasetsQuery = useDatasets({ page: 1, page_size: 100 })
   const datasets = useMemo(() => datasetsQuery.data?.items || [], [datasetsQuery.data])
+  // Data-sheet upload types carry their id in the catalogue, so those
+  // datasets can be named; other types still fall back to their number.
+  const sheetsQuery = useDataSheets()
+  const typeNameById = useMemo(() => {
+    const map = new Map()
+    for (const s of sheetsQuery.data?.sheets || []) if (s.upload_type_id) map.set(s.upload_type_id, `${s.title} (data sheet)`)
+    return map
+  }, [sheetsQuery.data])
+
   const filteredDatasets = useMemo(
     () => datasets.filter((d) => !search.trim() ||
       (d.notes || '').toLowerCase().includes(search.toLowerCase()) ||
+      (typeNameById.get(d.upload_type_id) || '').toLowerCase().includes(search.toLowerCase()) ||
       d.status.toLowerCase().includes(search.toLowerCase())),
-    [datasets, search]
+    [datasets, search, typeNameById]
   )
 
   // Resolve created_by -> user name via a Map over the already-fetched real
@@ -104,7 +116,7 @@ export default function UploadDataView() {
       )}
 
       <div className="flex items-center gap-6 border-b border-surface-border mb-5">
-        {['Quantitative', 'BRSR'].map((t) => (
+        {['Data sheets', 'BRSR', 'Quantitative'].map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -112,19 +124,22 @@ export default function UploadDataView() {
               tab === t ? 'border-brand-green text-brand-green font-medium' : 'border-transparent text-ink-500 hover:text-ink-900'
             }`}
           >
-            {t}
+            {t === 'Quantitative' ? 'Other datasets' : t}
           </button>
         ))}
       </div>
 
+      {tab === 'Data sheets' && (
+        <DataSheetsTab pushToast={pushToast} />
+      )}
       {tab === 'Quantitative' && (
         <QuantitativeTab user={user} pushToast={pushToast} />
       )}
       {tab === 'BRSR' && (
-        <BrsrWorkspace pushToast={pushToast} />
+        <BrsrWorkspace pushToast={pushToast} onOpenDataSheets={() => setTab('Data sheets')} />
       )}
 
-      {tab === 'Quantitative' && (
+      {(tab === 'Quantitative' || tab === 'Data sheets') && (
       <Card title="Uploaded Datasets" action={
         <div className="relative w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-300" />
@@ -164,7 +179,7 @@ export default function UploadDataView() {
                 <tr key={d.public_id} className="border-t border-surface-border">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2 text-ink-900 font-medium">
-                      <FileText size={12} className="text-ink-300" /> Upload Type #{d.upload_type_id}
+                      <FileText size={12} className="text-ink-300" /> {typeNameById.get(d.upload_type_id) || `Upload Type #${d.upload_type_id}`}
                     </div>
                   </td>
                   <td className="px-2 py-3 text-ink-500">{d.reporting_period_start} – {d.reporting_period_end}</td>

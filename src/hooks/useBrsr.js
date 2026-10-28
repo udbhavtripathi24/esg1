@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getQuestionBank, listResponseSets, createResponseSet, getResponseSet, getSection, saveAnswers,
   submitSection, withdrawSection, decideSection, reopenSection, getReviewQueue, getAnswerHistory,
+  submitQuestions, reviewQuestions, getQuestionQueue, getRoster, putRoster,
 } from '../api/brsr.js'
 
 export function useQuestionBank() {
@@ -57,6 +58,7 @@ export function useSaveAnswers(setId, code) {
             revision: info.revision,
             computed: info.computed,
             issues: info.issues,
+            ...(res.workflow?.[qid] ? { workflow: res.workflow[qid] } : {}),
           }
         }
         return { ...old, answers, report: res.sections?.[code] || old.report }
@@ -98,4 +100,50 @@ export function useReviewQueue({ enabled = true } = {}) {
 
 export function useAnswerHistory(setId, qid, { enabled = false } = {}) {
   return useQuery({ queryKey: ['brsr', 'history', setId, qid], queryFn: () => getAnswerHistory(setId, qid), enabled })
+}
+
+/** Per-question workflow. The server answers with the new states; the
+ * section (pending reviews, comments) and the queues are refreshed. */
+function useQuestionAction(fn) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (states, vars) => {
+      qc.setQueryData(['brsr', 'section', vars.setId, vars.code], (old) => {
+        if (!old) return old
+        const answers = { ...old.answers }
+        for (const [qid, st] of Object.entries(states || {})) {
+          if (answers[qid]) answers[qid] = { ...answers[qid], workflow: st }
+        }
+        return { ...old, answers }
+      })
+      qc.invalidateQueries({ queryKey: ['brsr', 'section', vars.setId] })
+      qc.invalidateQueries({ queryKey: ['brsr', 'set', vars.setId] })
+      qc.invalidateQueries({ queryKey: ['brsr', 'question-queue'] })
+    },
+  })
+}
+
+export const useSubmitQuestions = () =>
+  useQuestionAction(({ setId, questionIds }) => submitQuestions(setId, questionIds))
+export const useReviewQuestions = () =>
+  useQuestionAction(({ setId, questionIds, decision, note }) => reviewQuestions(setId, questionIds, decision, note))
+
+export function useQuestionQueue({ enabled = true } = {}) {
+  return useQuery({ queryKey: ['brsr', 'question-queue'], queryFn: getQuestionQueue, enabled })
+}
+
+export function useRoster(companyId, { enabled = true } = {}) {
+  return useQuery({ queryKey: ['brsr', 'roster', companyId || 'own'], queryFn: () => getRoster(companyId), enabled })
+}
+
+export function useSaveRoster(companyId) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (entries) => putRoster(entries, companyId),
+    onSuccess: (data) => {
+      qc.setQueryData(['brsr', 'roster', companyId || 'own'], data)
+      qc.invalidateQueries({ queryKey: ['brsr', 'section'] })
+    },
+  })
 }

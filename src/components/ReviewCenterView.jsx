@@ -10,6 +10,8 @@ import { useDatasets } from '../hooks/useDatasets.js'
 import { useCompanies } from '../hooks/useCompanies.js'
 import { useUsers } from '../hooks/useUsers.js'
 import BrsrReview from './brsr/BrsrReview.jsx'
+import AnswerQueue from './brsr/AnswerQueue.jsx'
+import { useQuestionQueue } from '../hooks/useBrsr.js'
 
 const YEARS = ['2026', '2025']
 const PERIODS = ['Q2 2026', 'Q1 2026']
@@ -17,6 +19,15 @@ const PERIODS = ['Q2 2026', 'Q1 2026']
 export default function ReviewCenterView() {
   const { user, hasPermission } = useAuth()
   const canReviewBrsr = hasPermission('dataset:review')
+  // Department reviewers named in the BRSR roster may not have review rights
+  // on datasets; their tab appears whenever answers are waiting for them.
+  const answerQueue = useQuestionQueue()
+  const answersWaiting = answerQueue.data?.length || 0
+  const tabs = [
+    'Datasets',
+    ...(canReviewBrsr || answersWaiting ? ['BRSR answers'] : []),
+    ...(canReviewBrsr ? ['BRSR sections'] : []),
+  ]
   const [tab, setTab] = useState('Datasets')
   const [year, setYear] = useState(YEARS[0])
   const [period, setPeriod] = useState(PERIODS[0])
@@ -79,9 +90,9 @@ export default function ReviewCenterView() {
         </div>
       )}
 
-      {canReviewBrsr && (
+      {tabs.length > 1 && (
         <div className="flex items-center gap-6 border-b border-surface-border mb-5">
-          {['Datasets', 'BRSR sections'].map((t) => (
+          {tabs.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -89,7 +100,7 @@ export default function ReviewCenterView() {
                 tab === t ? 'border-brand-green text-brand-green font-medium' : 'border-transparent text-ink-500 hover:text-ink-900'
               }`}
             >
-              {t}
+              {t}{t === 'BRSR answers' && answersWaiting > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-status-review/15 text-status-review text-[9px]">{answersWaiting}</span>}
             </button>
           ))}
         </div>
@@ -97,6 +108,8 @@ export default function ReviewCenterView() {
 
       {tab === 'BRSR sections' ? (
         <BrsrReview pushToast={pushToast} />
+      ) : tab === 'BRSR answers' ? (
+        <AnswerQueue pushToast={pushToast} />
       ) : (
       <>
       <Card className="mb-4">

@@ -12,6 +12,10 @@
  *   POST /brsr/response-sets/{id}/sections/{code}/reopen {reason}
  *   GET  /brsr/response-sets/{id}/answers/{qid}/history
  *   GET  /brsr/review-queue
+ *   POST /brsr/response-sets/{id}/questions/submit {question_ids}
+ *   POST /brsr/response-sets/{id}/questions/review {question_ids, decision: approved|returned, note}
+ *   GET  /brsr/question-queue                       answers waiting for my approval
+ *   GET  /brsr/roster?company_id=   PUT /brsr/roster {company_id?, entries}
  *   GET  /brsr/response-sets/{id}/preview?fmt=docx|pdf   (file download)
  *
  * company_id is only ever sent by Deloitte users; for client users the
@@ -48,6 +52,19 @@ export const reopenSection = (setId, code, reason) =>
 export const getAnswerHistory = (setId, qid) => apiClient.get(`/brsr/response-sets/${setId}/answers/${qid}/history`)
 
 export const getReviewQueue = () => apiClient.get('/brsr/review-queue')
+
+export const submitQuestions = (setId, questionIds) =>
+  apiClient.post(`/brsr/response-sets/${setId}/questions/submit`, { question_ids: questionIds })
+
+export const reviewQuestions = (setId, questionIds, decision, note) =>
+  apiClient.post(`/brsr/response-sets/${setId}/questions/review`, { question_ids: questionIds, decision, note })
+
+export const getQuestionQueue = () => apiClient.get('/brsr/question-queue')
+
+export const getRoster = (companyId) => apiClient.get('/brsr/roster', { params: companyId ? { company_id: companyId } : {} })
+
+export const putRoster = (entries, companyId) =>
+  apiClient.put('/brsr/roster', { entries, ...(companyId ? { company_id: Number(companyId) } : {}) })
 
 /** Downloads the watermarked draft. Uses fetch directly because the
  * response is a file, not JSON; errors are still parsed the normal way. */
