@@ -1,6 +1,6 @@
-import AssessmentModule from '../../components/AssessmentModule.jsx'
-import { surveysData } from '../../data/mockData'
+import SurveysHome from '../../components/surveys/SurveysHome.jsx'
 
+/** Surveys & Assessments: one module for client-built surveys and scored assessments. */
 export default function Surveys() {
-  return <AssessmentModule kind="survey" seedData={surveysData} />
+  return <SurveysHome />
 }

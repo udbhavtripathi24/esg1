@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Bell, LogOut, Settings, ChevronDown, CheckCircle2, AlertCircle, FileText } from 'lucide-react'
+import { Search, Bell, LogOut, Settings, ChevronDown, CheckCircle2, AlertCircle, FileText, ClipboardList } from 'lucide-react'
 import { Avatar } from './ui.jsx'
 import LoadingState from './LoadingState.jsx'
 import ErrorState from './ErrorState.jsx'
@@ -12,6 +12,8 @@ import deloitteLogo from '../assets/deloitte-logo.svg'
 // changes_requested. Same mapping pattern as roleColors/statusTint
 // elsewhere in this app for real backend enums.
 const eventTypeIcons = {
+  survey_invited: ClipboardList,
+  survey_reminder: ClipboardList,
   new_assignment: FileText,
   data_approved: CheckCircle2,
   data_rejected: AlertCircle,
@@ -19,6 +21,8 @@ const eventTypeIcons = {
 }
 
 const eventTypeColors = {
+  survey_invited: 'text-brand-green',
+  survey_reminder: 'text-amber-600',
   new_assignment: 'text-blue-600',
   data_approved: 'text-status-approved',
   data_rejected: 'text-status-pending',
@@ -134,7 +138,14 @@ export default function Topbar({ clientName, user, logout, placeholder = 'Search
                           className={`px-4 py-3 border-b border-surface-border hover:bg-surface-muted cursor-pointer transition-colors ${
                             !notif.is_read ? 'bg-brand-green/5' : ''
                           }`}
-                          onClick={() => { if (!notif.is_read) markOneRead.mutate(notif.id) }}
+                          onClick={() => {
+                            if (!notif.is_read) markOneRead.mutate(notif.id)
+                            // Survey invitations and reminders open the survey to answer it
+                            if (notif.entity_type === 'survey' && notif.entity_public_id && user?.portal_type === 'client') {
+                              setNotifOpen(false)
+                              navigate(`/client/surveys/respond/${notif.entity_public_id}`)
+                            }
+                          }}
                         >
                           <div className="flex items-start gap-3">
                             <div className={`mt-0.5 ${colorClass}`}>

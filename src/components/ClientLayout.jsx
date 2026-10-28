@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, UploadCloud, ListChecks, BarChart3, LineChart,
-  FileText, ShieldCheck, ClipboardList, MessageSquare, UserCog, Settings, Leaf,
+  FileText, ShieldCheck, ClipboardList, UserCog, Settings, Leaf,
 } from 'lucide-react'
 import Sidebar from './Sidebar.jsx'
 import Topbar from './Topbar.jsx'
@@ -16,8 +16,7 @@ const navItems = [
   { to: '/client/reporting', label: 'Reporting', icon: FileText },
   { to: '/client/esg-demo-dashboard', label: 'ESG Dashboard (Demo)', icon: Leaf },
   { to: '/client/assurance', label: 'Assurance', icon: ShieldCheck },
-  { to: '/client/assessments', label: 'Assessment', icon: ClipboardList },
-  { to: '/client/surveys', label: 'Surveys', icon: MessageSquare },
+  { to: '/client/surveys', label: 'Surveys & Assessments', icon: ClipboardList },
 ]
 
 const bottomItems = [
