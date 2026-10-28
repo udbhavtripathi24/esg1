@@ -339,7 +339,7 @@ export const systemLogs = [
   { id: 'LOG-000127', type: 'Dataset Rejected', module: 'Review Center', user: 'james.w@deloitte.com', role: 'Reviewer', timestamp: '13 Jul 2026, 17:41', status: 'Success' },
 ]
 
-export const roleOptions = ['Admin', 'Consultant', 'Reviewer', 'Support']
+export const roleOptions = ['Admin', 'Consultant', 'Reviewer', 'Support', 'Assurance Partner', 'Assurance Practitioner']
 
 export const industries = ['Energy', 'Financial Services', 'Manufacturing', 'Real Estate', 'Infrastructure', 'Consumer']
 

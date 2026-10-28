@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   FileText, Download, Send, Undo2, Unlock, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ClipboardList,
-  X, RefreshCw, Filter,
+  X, RefreshCw, Filter, Database, ChevronDown, ChevronRight, Users,
 } from 'lucide-react'
 import { Button, Card, Field, Select, ProgressBar, EmptyState } from '../ui.jsx'
 import LoadingState from '../LoadingState.jsx'
@@ -11,12 +11,15 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { useCompanies } from '../../hooks/useCompanies.js'
 import {
   useQuestionBank, useResponseSets, useResponseSet, useSection, useCreateResponseSet, useSaveAnswers,
-  useSubmitSection, useWithdrawSection, useReopenSection, useAnswerHistory,
+  useSubmitSection, useWithdrawSection, useReopenSection, useAnswerHistory, useSubmitQuestions, useReviewQuestions,
 } from '../../hooks/useBrsr.js'
 import { downloadPreview } from '../../api/brsr.js'
+import { updateCompany } from '../../api/companies.js'
 import BrsrQuestion from './BrsrQuestion.jsx'
+import SectionEvidence from './SectionEvidence.jsx'
 import StatusBadge from './StatusBadge.jsx'
-import { financialYearOptions, sectionName, sectionSubtitle, forDepartment } from './format.js'
+import DepartmentRoster from './DepartmentRoster.jsx'
+import { financialYearOptions, sectionName, sectionSubtitle, forDepartment, isQuestionnaire, fillLabels } from './format.js'
 
 const AUTOSAVE_MS = 1200
 
@@ -27,13 +30,14 @@ function errMessage(err, fallback) {
 /**
  * BRSR questionnaire — where the client enters its BRSR.
  *
- * Two parts: a short Annual data form (figures per department area, from
- * which every quantitative BRSR table is built) and the BRSR disclosures
- * (the questions only people can answer). Answers autosave; every section
- * is submitted for review on its own; the report is generated from
- * Reporting once all sections are approved.
+ * Quantitative tables are built from the approved data sheets (Upload
+ * Center → Data sheets). The questionnaire holds the questions people
+ * answer: each department's SPOC answers and sends each answer for review,
+ * the department reviewer approves it, and a section goes to Deloitte once
+ * its answers are approved. The report is generated from Reporting once
+ * every section is approved.
  */
-export default function BrsrWorkspace({ pushToast }) {
+export default function BrsrWorkspace({ pushToast, onOpenDataSheets }) {
   const { user, hasPermission } = useAuth()
   const isDeloitte = user?.portal_type === 'deloitte'
   const [companyId, setCompanyId] = useState('')
@@ -75,6 +79,7 @@ export default function BrsrWorkspace({ pushToast }) {
           onSelectSet={setSetId}
           companyId={isDeloitte ? companyId : null}
           pushToast={pushToast}
+          onOpenDataSheets={onOpenDataSheets}
         />
       )}
     </div>
@@ -107,22 +112,23 @@ function StartBrsr({ companyId, canCreate, onCreated, compact = false, existing 
     <Card title="Business Responsibility and Sustainability Report" icon={ClipboardList}
       subtitle="SEBI's BRSR format. Fill it here; the report is generated in Reporting once every section is approved.">
       <ul className="text-[10px] text-ink-700 space-y-1 mb-4 list-disc pl-4">
-        <li>Start with the <b>Annual data</b>: a short set of yearly figures per department — headcount, wages, energy, water, waste, finance. Every BRSR table is built from them.</li>
-        <li>Then answer the <b>BRSR disclosures</b> — policies, processes and narrative. Filter by department to see only your part.</li>
-        <li>Enter raw numbers only. Totals, percentages and intensities are calculated for you.</li>
-        <li>Answers save automatically. Each section is submitted for review separately. Last year's approved figures fill the previous-year column.</li>
+        <li>The <b>figures</b> — headcount, wages, energy, water, waste, finance — come from the approved <b>data sheets</b> (Upload Center → Data sheets). Every quantitative BRSR table is built from them.</li>
+        <li>The <b>questionnaire</b> holds the rest — policies, processes, narrative. Each department's SPOC answers its questions and sends them for review; the department's reviewer approves them.</li>
+        <li>A few figures have no data sheet (e.g. turnover, Scope 1 and 2 emissions); they are typed in their BRSR table.</li>
+        <li>Answers save automatically. A section goes to Deloitte once its answers are approved.</li>
       </ul>
       {body}
     </Card>
   )
 }
 
-function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
+function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast, onOpenDataSheets }) {
   const bankQuery = useQuestionBank()
   const overviewQuery = useResponseSet(setId)
   const [code, setCode] = useState(null)
   const [dept, setDept] = useState('')
   const [showNew, setShowNew] = useState(false)
+  const [showRoster, setShowRoster] = useState(false)
   const [downloading, setDownloading] = useState(null)
   const { hasPermission } = useAuth()
 
@@ -135,15 +141,12 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
   const total = ov.sections.length
   const approved = ov.sections.filter((s) => s.status === 'approved').length
   const sectionMeta = Object.fromEntries(bank.sections.map((s) => [s.code, s]))
-  const areaTitles = Object.fromEntries(bank.sections.filter((s) => s.kind === 'data').map((s) => [s.code, s.title]))
   // Sections with anything for the chosen department
   const deptSections = new Set(bank.questions.filter((q) => forDepartment(q, dept)).map((q) => q.section))
   const shown = ov.sections.filter((s) => !dept || deptSections.has(s.code))
   const activeCode = shown.some((s) => s.code === code) ? code : shown[0]?.code || ov.sections[0].code
-  const groups = [
-    { kind: 'data', label: 'Annual data', hint: 'Short yearly figures — they build the BRSR tables' },
-    { kind: 'disclosure', label: 'BRSR disclosures', hint: 'Section A, Section B, Principles 1–9' },
-  ]
+  const sheetWarnings = ov.data_sheets?.warnings || []
+  const changed = ov.data_changed_sections || []
 
   async function preview(fmt) {
     setDownloading(fmt)
@@ -172,6 +175,7 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
               <p className="text-[10px] text-ink-500">{ov.company_name}</p>
               <p className="text-sm font-semibold text-ink-900">{approved} of {total} sections approved</p>
               {ov.carried_forward && <p className="text-[9px] text-ink-500">Previous-year figures carried forward from last year's approved BRSR</p>}
+              <InternalReviewSetting ov={ov} pushToast={pushToast} />
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -181,6 +185,7 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
             <Button variant="ghost" size="sm" onClick={() => preview('pdf')} disabled={!!downloading}>
               {downloading === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} PDF
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowRoster((v) => !v)}><Users size={13} /> SPOCs & reviewers</Button>
             {hasPermission('dataset:create') && (
               <Button variant="subtle" size="sm" onClick={() => setShowNew((v) => !v)}>New FY</Button>
             )}
@@ -193,7 +198,20 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
           </div>
         )}
         <div className="mt-3"><ProgressBar pct={(approved / total) * 100} /></div>
+        {changed.length > 0 && (
+          <p className="mt-3 flex items-start gap-1.5 text-[10px] text-ink-900 bg-status-pending/10 rounded px-3 py-2">
+            <AlertCircle size={12} className="mt-px text-status-pending shrink-0" />
+            Approved data-sheet figures changed after {changed.length === 1 ? 'this section was' : 'these sections were'} approved: <b>{changed.join(', ')}</b>.
+            Reopen and re-approve {changed.length === 1 ? 'it' : 'them'} — the report is held until then.
+          </p>
+        )}
+        <DataSheetStatus warnings={sheetWarnings} coverage={ov.data_sheets?.coverage} fy={ov.financial_year} onOpen={onOpenDataSheets} />
       </Card>
+
+      {showRoster && (
+        <DepartmentRoster companyId={companyId} departments={bank.departments || []} pushToast={pushToast}
+          onClose={() => setShowRoster(false)} />
+      )}
 
       <div className="grid lg:grid-cols-[230px_1fr] gap-4 items-start">
         <div className="lg:sticky lg:top-4 space-y-2 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
@@ -205,51 +223,98 @@ function ResponseSetView({ setId, sets, onSelectSet, companyId, pushToast }) {
             </Select>
           </div>
           <nav className="bg-white border border-surface-border rounded-lg overflow-hidden" aria-label="BRSR sections">
-            {groups.map((g) => {
-              const items = shown.filter((s) => (sectionMeta[s.code]?.kind || 'disclosure') === g.kind)
-              if (!items.length) return null
-              const done = items.filter((s) => s.status === 'approved').length
+            {shown.map((s) => {
+              const meta = sectionMeta[s.code]
+              const qn = s.questionnaire || { total: 0, approved: 0 }
+              const active = activeCode === s.code
               return (
-                <div key={g.kind}>
-                  <div className="px-3 py-2 bg-surface-muted border-b border-surface-border">
-                    <p className="text-[10px] font-semibold text-ink-900 flex justify-between">{g.label}<span className="font-normal text-ink-500 tabular-nums">{done}/{items.length}</span></p>
-                    <p className="text-[9px] text-ink-500">{g.hint}</p>
+                <button key={s.code} type="button" onClick={() => setCode(s.code)} aria-current={active ? 'true' : undefined}
+                  className={`w-full text-left px-3 py-2.5 border-b border-surface-border last:border-b-0 transition-colors ${
+                    active ? 'bg-brand-green/10' : 'hover:bg-surface-muted/60'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[11px] truncate ${active ? 'font-semibold text-ink-900' : 'text-ink-700'}`}>{sectionName(s.code, meta)}</span>
+                    <StatusBadge status={s.status} />
                   </div>
-                  {items.map((s) => {
-                    const meta = sectionMeta[s.code]
-                    const pct = s.required ? Math.round((s.required_answered / s.required) * 100) : 100
-                    const active = activeCode === s.code
-                    return (
-                      <button key={s.code} type="button" onClick={() => setCode(s.code)} aria-current={active ? 'true' : undefined}
-                        className={`w-full text-left px-3 py-2.5 border-b border-surface-border transition-colors ${
-                          active ? 'bg-brand-green/10' : 'hover:bg-surface-muted/60'}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`text-[11px] truncate ${active ? 'font-semibold text-ink-900' : 'text-ink-700'}`}>{sectionName(s.code, meta)}</span>
-                          <StatusBadge status={s.status} />
-                        </div>
-                        <p className="text-[9px] text-ink-500 truncate mt-0.5">{sectionSubtitle(s.code, meta)}</p>
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <div className="flex-1"><ProgressBar pct={pct} height="h-1" /></div>
-                          <span className="text-[9px] text-ink-500 tabular-nums">{s.required_answered}/{s.required}</span>
-                          {s.errors > 0 && <AlertCircle size={10} className="text-status-pending" />}
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
+                  <p className="text-[9px] text-ink-500 truncate mt-0.5">{sectionSubtitle(s.code, meta)}</p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <div className="flex-1"><ProgressBar pct={s.status === 'approved' || !qn.total ? 100 : (qn.approved / qn.total) * 100} height="h-1" /></div>
+                    {s.status !== 'approved' && (
+                      <span className="text-[9px] text-ink-500 tabular-nums" title="Questionnaire answers approved by their reviewer">{qn.approved}/{qn.total}</span>
+                    )}
+                    {s.errors > 0 && <AlertCircle size={10} className="text-status-pending" />}
+                    {s.data_changed && <AlertTriangle size={10} className="text-status-pending" title="Data changed since approval" />}
+                  </div>
+                </button>
               )
             })}
           </nav>
         </div>
 
         <SectionPanel key={activeCode} setId={setId} code={activeCode} bank={bank} labels={ov.fy_labels} pushToast={pushToast}
-          dept={dept} areaTitles={areaTitles} onOpenSection={(c) => { setDept(''); setCode(c); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+          dept={dept} />
       </div>
     </div>
   )
 }
 
-function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, onOpenSection }) {
+/** Where the figures stand: gaps in the approved data sheets for the year. */
+function DataSheetStatus({ warnings, coverage, fy, onOpen }) {
+  const [open, setOpen] = useState(false)
+  const sheets = Object.values(coverage || {})
+  const withData = sheets.filter((c) => c.rows > 0).length
+  return (
+    <div className="mt-3 text-[10px] bg-surface-muted rounded px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Database size={12} className="text-brand-greenDark" />
+        <span className="text-ink-700">Figures from the approved data sheets: <b>{withData}</b> of {sheets.length} sheets have data for FY {fy}.</span>
+        {warnings.length > 0 && (
+          <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-0.5 text-status-review font-medium">
+            {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}{warnings.length} gap{warnings.length > 1 ? 's' : ''}
+          </button>
+        )}
+        <span className="flex-1" />
+        {onOpen && <button type="button" onClick={onOpen} className="text-brand-green font-medium hover:text-brand-greenDark">Open data sheets →</button>}
+      </div>
+      {open && (
+        <ul className="mt-2 space-y-0.5 max-h-40 overflow-y-auto">
+          {warnings.map((w, i) => <li key={i} className="flex items-start gap-1.5 text-ink-700"><AlertTriangle size={10} className="mt-px text-status-review shrink-0" />{w.message}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Two-tier review is a per-company policy, set by a Deloitte administrator. */
+function InternalReviewSetting({ ov, pushToast }) {
+  const { hasPermission } = useAuth()
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  if (!hasPermission('company:manage')) {
+    return ov.internal_review_required
+      ? <p className="text-[9px] text-ink-500">Each section is reviewed internally by the company, then by Deloitte.</p>
+      : null
+  }
+  async function toggle(e) {
+    setBusy(true)
+    try {
+      await updateCompany(ov.company_id, { brsr_internal_review_required: e.target.checked })
+      await qc.invalidateQueries({ queryKey: ['brsr'] })
+      pushToast(e.target.checked ? 'Internal review is now required before Deloitte review.' : 'Internal review step turned off.')
+    } catch (err) {
+      pushToast(errMessage(err, 'Could not change the setting.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <label className="inline-flex items-center gap-1.5 text-[9px] text-ink-700 mt-1">
+      <input type="checkbox" checked={!!ov.internal_review_required} disabled={busy} onChange={toggle} className="accent-brand-green" />
+      Company reviews each section internally before Deloitte (two-tier review)
+    </label>
+  )
+}
+
+function SectionPanel({ setId, code, bank, labels, pushToast, dept }) {
   const qc = useQueryClient()
   const { hasPermission } = useAuth()
   const sectionQuery = useSection(setId, code)
@@ -257,6 +322,10 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
   const submit = useSubmitSection()
   const withdraw = useWithdrawSection()
   const reopen = useReopenSection()
+  const sendQ = useSubmitQuestions()
+  const reviewQ = useReviewQuestions()
+  const [busyQ, setBusyQ] = useState(null) // qid or 'bulk'
+  const [showData, setShowData] = useState(false)
 
   const [drafts, setDrafts] = useState({})
   const [saveState, setSaveState] = useState('idle') // idle | saving | saved | error | conflict
@@ -366,9 +435,56 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
     })
   }
 
-  let lastGroup = null
   const title = code.startsWith('P') ? `${meta.title}: ${meta.statement}` : meta.title
   const hiddenByDept = bank.questions.filter((q) => q.section === code).length - questions.length
+  const questionnaire = questions.filter(isQuestionnaire)
+  const fromSheets = questions.filter((q) => !isQuestionnaire(q))
+  const pending = detail.pending_reviews || []
+  const wf = (qid) => detail.answers[qid]?.workflow
+  const sendable = questionnaire.filter((q) => {
+    const w = wf(q.id)
+    return w?.can_answer && (w.status === 'open' || w.status === 'returned') && detail.answers[q.id]?.answered && !(q.id in drafts)
+  }).map((q) => q.id)
+  const reviewable = questionnaire.filter((q) => wf(q.id)?.can_review).map((q) => q.id)
+
+  function runQ(key, mutation, vars, okMsg, after) {
+    setBusyQ(key)
+    mutation.mutate({ setId, code, ...vars }, {
+      onSuccess: () => { if (okMsg) pushToast(okMsg); after?.() },
+      onError: (e) => pushToast(errMessage(e, 'Could not update the answer.')),
+      onSettled: () => setBusyQ(null),
+    })
+  }
+
+  function renderQuestion(q, lastGroupRef) {
+    const header = q.group !== lastGroupRef.current ? q.group : null
+    lastGroupRef.current = q.group
+    const info = detail.answers[q.id]
+    const value = q.id in drafts ? drafts[q.id] : info?.value
+    return (
+      <div key={q.id}>
+        {header && (
+          <h3 className="text-[11px] font-semibold text-ink-900 mt-4 mb-2 px-1 flex items-center gap-2">
+            {header}
+            {q.indicator === 'leadership' && <span className="text-[9px] font-normal text-ink-500">Voluntary under SEBI's format</span>}
+            {q.indicator === 'helper' && <span className="text-[9px] font-normal text-ink-500">Used for calculations — not printed as a BRSR question</span>}
+          </h3>
+        )}
+        <BrsrQuestion
+          q={q} value={value} info={info} comments={commentsByQ[q.id]} labels={labels}
+          editable={canEdit && saveState !== 'conflict' && info?.workflow?.can_answer !== false} dirty={q.id in drafts}
+          onChange={(v) => change(q.id, v)} pushToast={pushToast} onShowHistory={setHistoryFor}
+          evidenceCount={(detail.evidence || []).filter((e) => e.question_id === q.id).length}
+          workflowBusy={busyQ === q.id || busyQ === 'bulk'}
+          onSendForReview={() => runQ(q.id, sendQ, { questionIds: [q.id] }, 'Sent for review.')}
+          onReviewAnswer={(decision, note, done) => runQ(q.id, reviewQ, { questionIds: [q.id], decision, note },
+            decision === 'approved' ? 'Answer approved.' : 'Answer returned to the SPOC.', done)}
+        />
+      </div>
+    )
+  }
+  const qGroup = { current: null }
+  const dGroup = { current: null }
 
   return (
     <div className="space-y-3 min-w-0">
@@ -380,9 +496,6 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
             </div>
             <h2 className="text-[13px] font-semibold text-ink-900 leading-snug">{title}</h2>
             {meta.intro && <p className="text-[10px] text-ink-500 mt-1">{meta.intro}</p>}
-            {meta.kind === 'data' && meta.departments?.length > 0 && (
-              <p className="text-[9px] text-ink-500 mt-1">Owned by: <b className="font-medium text-ink-700">{meta.departments.join(', ')}</b></p>
-            )}
             {hiddenByDept > 0 && (
               <p className="text-[9px] text-ink-500 mt-1">Showing {dept}'s questions · {hiddenByDept} other question{hiddenByDept > 1 ? 's' : ''} in this section belong to other departments.</p>
             )}
@@ -390,8 +503,9 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
           <div className="flex items-center gap-2">
             <SaveIndicator state={saveState} dirty={dirty} error={saveError} onRetry={doSave} />
             {detail.editable && hasPermission('dataset:submit') && (
-              <Button size="sm" onClick={doSubmit} disabled={!report.ready_to_submit || submit.isPending || saveState === 'conflict'}
-                title={report.ready_to_submit ? '' : 'Answer every required question and fix errors first'}>
+              <Button size="sm" onClick={doSubmit} disabled={!report.ready_to_submit || pending.length > 0 || submit.isPending || saveState === 'conflict'}
+                title={!report.ready_to_submit ? 'Answer every required question and fix errors first'
+                  : pending.length ? `${pending.length} answer(s) still need their reviewer's approval` : ''}>
                 {submit.isPending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                 {confirmWarnings ? `Submit with ${report.warnings.length} warning${report.warnings.length > 1 ? 's' : ''}` : 'Submit for review'}
               </Button>
@@ -399,7 +513,7 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
             {confirmWarnings && (
               <Button variant="ghost" size="sm" onClick={() => setConfirmWarnings(false)}>Cancel</Button>
             )}
-            {detail.status === 'submitted' && hasPermission('dataset:submit') && (
+            {['submitted', 'internally_approved'].includes(detail.status) && hasPermission('dataset:submit') && (
               <Button variant="ghost" size="sm" disabled={withdraw.isPending}
                 onClick={() => withdraw.mutate({ setId, code }, { onError: (e) => pushToast(errMessage(e, 'Could not withdraw.')) })}>
                 <Undo2 size={13} /> Withdraw
@@ -416,13 +530,34 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
           {report.errors.length > 0 && <a href={`#q-${report.errors[0].question_id}`} className="flex items-center gap-1 text-status-pending"><AlertCircle size={11} /> {report.errors.length} error{report.errors.length > 1 ? 's' : ''}</a>}
           {report.warnings.length > 0 && <a href={`#q-${report.warnings[0].question_id}`} className="flex items-center gap-1 text-status-review"><AlertTriangle size={11} /> {report.warnings.length} warning{report.warnings.length > 1 ? 's' : ''}</a>}
           {report.missing.length > 0 && <a href={`#q-${report.missing[0]}`} className="text-ink-500 underline decoration-dotted">{report.missing.length} still to answer</a>}
-          {report.ready_to_submit && detail.editable && <span className="flex items-center gap-1 text-status-approved"><CheckCircle2 size={11} /> Ready to submit</span>}
+          {pending.length > 0 && detail.editable && (
+            <a href={`#q-${pending[0]}`} className="text-status-review underline decoration-dotted">{pending.length} answer{pending.length > 1 ? 's' : ''} awaiting approval</a>
+          )}
+          {report.ready_to_submit && !pending.length && detail.editable && <span className="flex items-center gap-1 text-status-approved"><CheckCircle2 size={11} /> Ready to submit</span>}
+          <span className="flex-1" />
+          {detail.editable && sendable.length > 1 && (
+            <Button size="sm" variant="ghost" disabled={busyQ === 'bulk'}
+              onClick={() => runQ('bulk', sendQ, { questionIds: sendable }, `${sendable.length} answers sent for review.`)}>
+              <Send size={12} /> Send {sendable.length} answers for review
+            </Button>
+          )}
+          {reviewable.length > 1 && (
+            <Button size="sm" variant="subtle" disabled={busyQ === 'bulk'}
+              onClick={() => runQ('bulk', reviewQ, { questionIds: reviewable, decision: 'approved' }, `${reviewable.length} answers approved.`)}>
+              <CheckCircle2 size={12} /> Approve {reviewable.length} answers
+            </Button>
+          )}
         </div>
+        {detail.data_changed && (
+          <p className="mt-3 text-[10px] text-ink-900 bg-status-pending/10 rounded px-3 py-2">
+            The approved data sheets changed after this section was approved, so its figures are different now. Reopen it and have it approved again before the report is generated.
+          </p>
+        )}
 
         {confirmWarnings && (
           <div className="mt-3 text-[10px] bg-status-review/10 text-ink-900 rounded px-3 py-2 space-y-1">
             <p className="font-semibold">Please confirm these before submitting — the reviewer will see them too:</p>
-            {report.warnings.map((w, i) => <p key={i} className="flex items-start gap-1.5"><AlertTriangle size={11} className="mt-px text-status-review shrink-0" />{w.message}</p>)}
+            {report.warnings.map((w, i) => <p key={i} className="flex items-start gap-1.5"><AlertTriangle size={11} className="mt-px text-status-review shrink-0" />{fillLabels(w.message, labels)}</p>)}
           </div>
         )}
 
@@ -443,11 +578,19 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
 
         {detail.status === 'submitted' && (
           <p className="mt-3 text-[10px] text-ink-700 bg-status-review/10 rounded px-3 py-2">
-            Submitted by {detail.submitted_by || 'a team member'} on {new Date(detail.submitted_at).toLocaleString()}. Answers are locked while it is under review.
+            Submitted by {detail.submitted_by || 'a team member'} on {new Date(detail.submitted_at).toLocaleString()}.{' '}
+            {detail.internal_review_required ? 'Waiting for your company\'s internal review, then Deloitte\'s.' : 'Answers are locked while it is under review.'}
+          </p>
+        )}
+        {detail.status === 'internally_approved' && (
+          <p className="mt-3 text-[10px] text-ink-700 bg-blue-50 rounded px-3 py-2">
+            Approved internally by {detail.internal_reviewed_by} on {new Date(detail.internal_reviewed_at).toLocaleString()}
+            {detail.internal_review_note ? ` (“${detail.internal_review_note}”)` : ''}. Now with Deloitte for final review.
           </p>
         )}
         {detail.status === 'approved' && (
           <p className="mt-3 text-[10px] text-ink-700 bg-status-approved/10 rounded px-3 py-2">
+            {detail.internal_reviewed_by && <>Approved internally by {detail.internal_reviewed_by}; </>}
             Approved by {detail.decided_by || 'a reviewer'} on {new Date(detail.decided_at).toLocaleString()}. {detail.decision_note}
           </p>
         )}
@@ -468,29 +611,32 @@ function SectionPanel({ setId, code, bank, labels, pushToast, dept, areaTitles, 
         )}
       </div>
 
-      {questions.map((q) => {
-        const header = q.group !== lastGroup && q.type !== 'metrics' ? q.group : null
-        lastGroup = q.group
-        const info = detail.answers[q.id]
-        const value = q.id in drafts ? drafts[q.id] : info?.value
-        return (
-          <div key={q.id}>
-            {header && (
-              <h3 className="text-[11px] font-semibold text-ink-900 mt-4 mb-2 px-1 flex items-center gap-2">
-                {header}
-                {q.indicator === 'leadership' && <span className="text-[9px] font-normal text-ink-500">Voluntary under SEBI's format</span>}
-                {q.indicator === 'helper' && <span className="text-[9px] font-normal text-ink-500">Used for calculations — not printed as a BRSR question</span>}
-              </h3>
+      <SectionEvidence setId={setId} code={code} detail={detail} questions={questions} pushToast={pushToast} />
+
+      {questionnaire.map((q) => renderQuestion(q, qGroup))}
+
+      {fromSheets.length > 0 && (
+        <div className="bg-white border border-surface-border rounded-lg">
+          <button type="button" onClick={() => setShowData((v) => !v)} aria-expanded={showData}
+            className="w-full flex items-center gap-2 px-4 py-3 text-left">
+            {showData ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            <Database size={13} className="text-brand-greenDark" />
+            <span className="text-[11px] font-semibold text-ink-900">From data sheets</span>
+            <span className="text-[10px] text-ink-500">{fromSheets.length} table{fromSheets.length > 1 ? 's' : ''} built automatically from the approved uploads — nothing to type</span>
+            {(detail.data_sheets?.warnings || []).length > 0 && (
+              <span className="ml-auto text-[9px] text-status-review">{detail.data_sheets.warnings.length} data gap{detail.data_sheets.warnings.length > 1 ? 's' : ''}</span>
             )}
-            <BrsrQuestion
-              q={q} value={value} info={info} comments={commentsByQ[q.id]} labels={labels}
-              editable={canEdit && saveState !== 'conflict'} dirty={q.id in drafts}
-              onChange={(v) => change(q.id, v)} pushToast={pushToast} onShowHistory={setHistoryFor}
-              areaTitles={areaTitles} onOpenSection={onOpenSection}
-            />
-          </div>
-        )
-      })}
+          </button>
+          {showData && (
+            <div className="px-3 pb-3 space-y-3">
+              {(detail.data_sheets?.warnings || []).map((w, i) => (
+                <p key={i} className="flex items-start gap-1.5 text-[10px] text-ink-700 px-1"><AlertTriangle size={11} className="mt-px text-status-review shrink-0" />{w.message}</p>
+              ))}
+              {fromSheets.map((q) => renderQuestion(q, dGroup))}
+            </div>
+          )}
+        </div>
+      )}
 
       {historyFor && <HistoryDrawer setId={setId} qid={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>

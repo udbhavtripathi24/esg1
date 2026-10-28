@@ -37,6 +37,7 @@ export function isComputedCell(col, row) {
 export const SECTION_STATUS = {
   draft: { label: 'Draft', cls: 'bg-ink-100 text-ink-500' },
   submitted: { label: 'Under review', cls: 'bg-status-review/10 text-status-review' },
+  internally_approved: { label: 'With Deloitte', cls: 'bg-blue-50 text-blue-700' },
   approved: { label: 'Approved', cls: 'bg-status-approved/10 text-status-approved' },
   changes_requested: { label: 'Changes requested', cls: 'bg-status-pending/10 text-status-pending' },
 }
@@ -58,10 +59,10 @@ export function fyPeriod(fy) {
 }
 
 // ---------------------------------------------------------------------------
-// Annual data (short form) and derived questions — bank v2
+// Figures built from the approved data sheets (bank v3)
 // ---------------------------------------------------------------------------
 
-/** Navigation label for a section: data areas by title, SEBI sections by code. */
+/** Navigation label for a section. */
 export function sectionName(code, meta) {
   if (meta?.kind === 'data') return meta.title
   return code.startsWith('P') ? `Principle ${code.slice(1)}` : `Section ${code}`
@@ -72,22 +73,31 @@ export function sectionSubtitle(code, meta) {
   return code.startsWith('P') ? meta?.statement : meta?.title?.split(': ')[1]
 }
 
-/** The platform builds this whole question from the annual data. */
+/** Built entirely from the data sheets: nothing to type, nothing to review per question. */
 export function isFullyDerived(q) {
-  return !!q?.derive && !q.required
+  return q?.source === 'data' || (!!q?.derive && !q.required && q?.source !== 'both' && q?.source !== 'qualitative')
 }
 
-/** Mirrors engine.derive_key: a table cell filled from the annual data.
- * Only current- and previous-year columns are derived. */
-export function isDerivedCell(q, col, row) {
+/** Answered in the questionnaire (wholly or partly) and approved question by question. */
+export function isQuestionnaire(q) {
+  return (q?.source || 'qualitative') !== 'data'
+}
+
+/** Mirrors engine.is_derived_cell / derived_py_cells: a table cell filled
+ * from the data sheets. Current-year cells always are; a previous-year cell
+ * only once last year's sheets are approved — until then the client types
+ * it, so it is derived only when the server sent a value for it. */
+export function isDerivedCell(q, col, row, computed) {
   if (!q?.derive || !row) return false
   const period = col.period
   if (period && period !== 'cy' && period !== 'py') return false
   const base = period ? col.key.slice(period.length + 1) : col.key
-  return `${row.key}.${base}` in q.derive
+  if (!(`${row.key}.${base}` in q.derive)) return false
+  if (period === 'py') return computed?.[row.key] !== undefined && col.key in (computed[row.key] || {})
+  return true
 }
 
-/** A field of a "fields" question filled from the annual data. */
+/** A field of a "fields" question filled from the data sheets. */
 export function isDerivedField(q, key) {
   return !!q?.derive && `fields.${key}` in q.derive
 }
@@ -95,4 +105,11 @@ export function isDerivedField(q, key) {
 /** Does this question (or section) concern the given department? */
 export function forDepartment(item, dept) {
   return !dept || (item?.departments || []).includes(dept)
+}
+
+export const ANSWER_STATUS = {
+  open: { label: 'Not sent for review', cls: 'bg-ink-100 text-ink-500' },
+  submitted: { label: 'Awaiting approval', cls: 'bg-status-review/10 text-status-review' },
+  approved: { label: 'Approved', cls: 'bg-status-approved/10 text-status-approved' },
+  returned: { label: 'Returned', cls: 'bg-status-pending/10 text-status-pending' },
 }

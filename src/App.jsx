@@ -12,6 +12,7 @@ import ControlCenter from './pages/consultant/ControlCenter.jsx'
 import NewClientRegistration from './pages/consultant/NewClientRegistration.jsx'
 import ConsultantUploadCenter from './pages/consultant/UploadCenter.jsx'
 import ConsultantReviewCenter from './pages/consultant/ReviewCenter.jsx'
+import AssuranceWorkspace from './pages/consultant/AssuranceWorkspace.jsx'
 import ClientDashboard from './pages/client/Dashboard.jsx'
 import ClientUploadCenter from './pages/client/UploadCenter.jsx'
 import ClientReviewCenter from './pages/client/ReviewCenter.jsx'
@@ -20,9 +21,9 @@ import Benchmarking from './pages/client/Benchmarking.jsx'
 import Reporting from './pages/client/Reporting.jsx'
 import EsgDemoDashboard from './pages/client/EsgDemoDashboard.jsx'
 import Assurance from './pages/client/Assurance.jsx'
-import PersonalizedAssessment from './pages/client/PersonalizedAssessment.jsx'
-import AssessmentsList from './pages/client/AssessmentsList.jsx'
 import Surveys from './pages/client/Surveys.jsx'
+import SurveyWorkspacePage from './components/surveys/SurveyWorkspace.jsx'
+import { PublicSurveyPage, RespondPage } from './components/surveys/RespondPages.jsx'
 import AdminConsole from './pages/client/AdminConsole.jsx'
 import Settings from './pages/client/Settings.jsx'
 
@@ -47,6 +48,8 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/payment" element={<Payment />} />
           <Route path="/login" element={<Login />} />
+          {/* Answering by link: no login, no app chrome */}
+          <Route path="/s/:token" element={<PublicSurveyPage />} />
 
           {/* Deloitte consultant portal */}
           <Route
@@ -63,6 +66,9 @@ function App() {
             <Route path="control-center/new-client" element={<NewClientRegistration />} />
             <Route path="upload-center" element={<ConsultantUploadCenter />} />
             <Route path="review-center" element={<ConsultantReviewCenter />} />
+            <Route path="assurance" element={<AssuranceWorkspace />} />
+            <Route path="surveys" element={<Surveys />} />
+            <Route path="surveys/:surveyId" element={<SurveyWorkspacePage />} />
           </Route>
 
           {/* Client portal */}
@@ -83,9 +89,12 @@ function App() {
             <Route path="reporting" element={<Reporting />} />
             <Route path="esg-demo-dashboard" element={<EsgDemoDashboard />} />
             <Route path="assurance" element={<Assurance />} />
-            <Route path="assessments" element={<AssessmentsList />} />
-            <Route path="personalized-assessment" element={<PersonalizedAssessment />} />
             <Route path="surveys" element={<Surveys />} />
+            <Route path="surveys/respond/:surveyId" element={<RespondPage />} />
+            <Route path="surveys/:surveyId" element={<SurveyWorkspacePage />} />
+            {/* The old assessment pages are now part of Surveys & Assessments */}
+            <Route path="assessments" element={<Navigate to="/client/surveys" replace />} />
+            <Route path="personalized-assessment" element={<Navigate to="/client/surveys" replace />} />
             <Route path="admin-console" element={<AdminConsole />} />
             <Route path="settings" element={<Settings />} />
           </Route>

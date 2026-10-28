@@ -21,10 +21,14 @@ import { roleOptions, auditLogs, logFilters } from '../../data/mockData'
 // string straight through, so the two concerns don't silently drift apart
 // if either side ever changes independently.
 const ROLE_TO_ROLE_CODE = {
+  Admin: 'Administrator', // the Add User picker shows "Admin"
   Administrator: 'Administrator',
   Consultant: 'Consultant',
   Reviewer: 'Reviewer',
   Support: 'Support',
+  // Independent assurance staff: they see only engagements they are on.
+  'Assurance Partner': 'Assurance Partner',
+  'Assurance Practitioner': 'Assurance Practitioner',
 }
 
 const roleColors = {
@@ -32,6 +36,8 @@ const roleColors = {
   Consultant: 'text-purple-600',
   Reviewer: 'text-status-approved',
   Support: 'text-status-review',
+  'Assurance Partner': 'text-brand-greenDark',
+  'Assurance Practitioner': 'text-brand-green',
 }
 
 const TABS = ['User Directory', 'Role Assignment', 'Client Pool', 'Logs']
