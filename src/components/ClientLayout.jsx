@@ -20,12 +20,14 @@ const navItems = [
 ]
 
 const bottomItems = [
-  { to: '/client/admin-console', label: 'Admin Console', icon: UserCog },
+  { to: '/client/admin-console', label: 'Admin Console', icon: UserCog, anyOf: ['user:read', 'audit:read', 'integration:manage'] },
   { to: '/client/settings', label: 'Settings', icon: Settings },
 ]
 
 export default function ClientLayout() {
-  const { user, logout } = useAuth()
+  const { user, logout, hasAnyPermission } = useAuth()
+  // Admin Console only for people who can use one of its tabs
+  const bottom = bottomItems.filter((i) => !i.anyOf || hasAnyPermission(...i.anyOf))
 
   return (
     <div className="h-screen flex flex-col bg-surface-muted">
@@ -36,7 +38,7 @@ export default function ClientLayout() {
         settingsPath="/client/settings" 
       />
       <div className="flex flex-1 min-h-0">
-        <Sidebar items={navItems} bottomItems={bottomItems} />
+        <Sidebar items={navItems} bottomItems={bottom} />
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-[1400px] mx-auto px-8 py-8">
             <Outlet />

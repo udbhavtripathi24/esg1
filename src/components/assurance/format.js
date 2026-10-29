@@ -1,5 +1,5 @@
 /** Assurance display helpers (no components here, so fast refresh works). */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export function errMessage(err, fallback) {
   return err?.data?.error?.message || err?.message || fallback
@@ -50,6 +50,13 @@ export function fyLabels(fy) {
 /** Toast state for a page; render <Toast msg={toast.msg} />. */
 export function useToast() {
   const [msg, setMsg] = useState(null)
-  const push = useCallback((m) => { setMsg(m); setTimeout(() => setMsg(null), 3500) }, [])
+  const timer = useRef(null)
+  // A new message restarts the timer, so an older one can't clear it early
+  const push = useCallback((m) => {
+    clearTimeout(timer.current)
+    setMsg(m)
+    timer.current = setTimeout(() => setMsg(null), 3500)
+  }, [])
+  useEffect(() => () => clearTimeout(timer.current), [])
   return { msg, push }
 }

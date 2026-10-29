@@ -3,14 +3,17 @@ import { useMutation } from '@tanstack/react-query'
 import { CheckCircle2 } from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
 import { Card, Button, Field, Input } from '../../components/ui.jsx'
-import { currentClientUser } from '../../data/mockData'
+import { useAuth } from '../../context/AuthContext.jsx'
+import { useCompanies } from '../../hooks/useCompanies.js'
 import { changeOwnPassword } from '../../api/auth.js'
 
 const TABS = ['Profile', 'Notifications', 'Security']
 
 export default function Settings() {
   const [tab, setTab] = useState('Profile')
-  const [emailNotifs, setEmailNotifs] = useState({ tasks: true, deadlines: true, comments: true, weekly: false })
+  const { user } = useAuth()
+  const companies = useCompanies({ page: 1, page_size: 1 })
+  const companyName = companies.data?.items?.[0]?.name
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -70,42 +73,34 @@ export default function Settings() {
       {tab === 'Profile' && (
         <Card className="max-w-lg">
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Full Name"><Input defaultValue={currentClientUser.name} /></Field>
-            <Field label="Title"><Input defaultValue={currentClientUser.role} /></Field>
+            <Field label="Full Name"><Input value={user?.name || ''} disabled readOnly /></Field>
+            <Field label="Role"><Input value={(user?.role || '').replace('Client ', '')} disabled readOnly /></Field>
           </div>
           <div className="mt-4">
-            <Field label="Email"><Input defaultValue={currentClientUser.email} /></Field>
+            <Field label="Email"><Input value={user?.email || ''} disabled readOnly /></Field>
           </div>
-          <div className="mt-4">
-            <Field label="Company"><Input defaultValue={currentClientUser.company} disabled /></Field>
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <Field label="Department"><Input value={user?.department || '—'} disabled readOnly /></Field>
+            <Field label="Company"><Input value={companyName || ''} disabled readOnly /></Field>
           </div>
-          <div className="flex justify-end mt-5">
-            <Button>Save changes</Button>
-          </div>
+          <p className="text-[11px] text-ink-500 mt-4">
+            Your name, department and role are managed by your company administrator in the Admin Console.
+            Your e-mail is your sign-in. You can change your password under Security.
+          </p>
         </Card>
       )}
 
       {tab === 'Notifications' && (
         <Card className="max-w-lg">
-          <p className="text-sm font-medium text-ink-900 mb-3">Email Notifications</p>
-          <div className="space-y-3">
-            {[
-              { key: 'tasks', label: 'New task assignments' },
-              { key: 'deadlines', label: 'Upcoming reporting deadlines' },
-              { key: 'comments', label: 'Reviewer comments' },
-              { key: 'weekly', label: 'Weekly summary digest' },
-            ].map((n) => (
-              <label key={n.key} className="flex items-center justify-between text-sm text-ink-700">
-                {n.label}
-                <input
-                  type="checkbox"
-                  checked={emailNotifs[n.key]}
-                  onChange={() => setEmailNotifs((s) => ({ ...s, [n.key]: !s[n.key] }))}
-                  className="rounded border-surface-border w-4 h-4"
-                />
-              </label>
-            ))}
-          </div>
+          <p className="text-sm font-medium text-ink-900 mb-2">Notifications</p>
+          <p className="text-xs text-ink-700">
+            You get in-app notifications (the bell at the top) for review decisions, assignments, BRSR answers waiting
+            for you, and surveys you're asked to complete.
+          </p>
+          <p className="text-xs text-ink-500 mt-3">
+            E-mail notifications aren't available yet. When e-mail is switched on for the platform, you'll be able to
+            choose which ones you receive here.
+          </p>
         </Card>
       )}
 

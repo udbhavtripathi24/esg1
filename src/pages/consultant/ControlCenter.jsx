@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Search, ChevronDown, Plus, Check, Eye, UserX } from 'lucide-react'
+import { Search, ChevronDown, Plus, Check, UserX } from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
-import { Button, Avatar, EmptyState, Select } from '../../components/ui.jsx'
+import { Button, Avatar, EmptyState } from '../../components/ui.jsx'
 import LoadingState from '../../components/LoadingState.jsx'
 import ErrorState from '../../components/ErrorState.jsx'
 import AddUserModal from './AddUserModal.jsx'
@@ -13,7 +13,8 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { useCompanies, useUpdateCompany } from '../../hooks/useCompanies.js'
 import { useUsers, useCreateUser, useDeactivateUser, useUpdateUser } from '../../hooks/useUsers.js'
 import { useConsultantAssignments, useCreateConsultantAssignment, useUpdateConsultantAssignment, useAssignRole, useRemoveRole } from '../../hooks/useAssignments.js'
-import { roleOptions, auditLogs, logFilters } from '../../data/mockData'
+import { roleOptions } from '../../data/mockData'
+import AuditTrail from '../../components/admin/AuditTrail.jsx'
 
 // UI role display names map 1-to-1 to backend role_code (confirmed against
 // the actual seeded RBAC roles: Administrator, Consultant, Reviewer,
@@ -361,7 +362,7 @@ export default function ControlCenter() {
       <PageHeader title="Control Center" subtitle="Manage users, roles and client organizations in one place." />
 
       <div className="flex items-center gap-6 border-b border-surface-border mb-5">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t !== 'Logs' || hasPermission('audit:read')).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -459,7 +460,7 @@ export default function ControlCenter() {
         />
       )}
 
-      {tab === 'Logs' && <LogsTab />}
+      {tab === 'Logs' && hasPermission('audit:read') && <LogsTab />}
 
       {showAddUser && (
         <AddUserModal
@@ -1058,81 +1059,6 @@ function ClientPoolTab({
 }
 
 function LogsTab() {
-  const [search, setSearch] = useState('')
-  const [time, setTime] = useState(logFilters.time[0])
-  const [event, setEvent] = useState(logFilters.events[0])
-
-  const filtered = auditLogs.filter(
-    (l) =>
-      (!search.trim() || l.message.toLowerCase().includes(search.toLowerCase()) || l.user.toLowerCase().includes(search.toLowerCase())) &&
-      (event === 'All Events' || l.event === event)
-  )
-
-  return (
-    <div>
-      <div className="grid sm:grid-cols-[1fr_200px_200px] gap-4 mb-5">
-        <div>
-          <label className="text-xs text-ink-700 mb-1 block opacity-0">Search</label>
-          <div className="relative">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search datasets......"
-              className="w-full pl-3 pr-9 py-2.5 rounded-md border border-surface-border text-[10px] placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/20"
-            />
-            <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-300" />
-          </div>
-        </div>
-        <div>
-          <label className="text-xs text-ink-700 mb-1 block">Time</label>
-          <Select value={time} onChange={(e) => setTime(e.target.value)}>
-            {logFilters.time.map((t) => <option key={t}>{t}</option>)}
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs text-ink-700 mb-1 block">Events</label>
-          <Select value={event} onChange={(e) => setEvent(e.target.value)}>
-            {logFilters.events.map((e) => <option key={e}>{e}</option>)}
-          </Select>
-        </div>
-      </div>
-
-      <div className="bg-white border border-surface-border rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h3 className="text-xs font-semibold text-ink-900">Audit Trail</h3>
-          <span className="text-xs text-ink-400">Read-only</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="text-left text-xs text-ink-500 bg-surface-muted/50">
-                <th className="font-medium px-5 py-3">Event</th>
-                <th className="font-medium px-2 py-3">User</th>
-                <th className="font-medium px-2 py-3">Message</th>
-                <th className="font-medium px-2 py-3">Record ID</th>
-                <th className="font-medium px-2 py-3">Timestamp</th>
-                <th className="font-medium px-2 py-3">IP Address</th>
-                <th className="font-medium px-5 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((l, i) => (
-                <tr key={i} className="border-t border-surface-border">
-                  <td className="px-5 py-3 text-ink-900 font-medium">{l.event}</td>
-                  <td className="px-2 py-3 text-ink-700">{l.user}</td>
-                  <td className="px-2 py-3 text-ink-500">{l.message}</td>
-                  <td className="px-2 py-3 text-ink-400">{l.recordId}</td>
-                  <td className="px-2 py-3 text-ink-500">{l.timestamp}</td>
-                  <td className="px-2 py-3 text-ink-500">{l.ip}</td>
-                  <td className="px-5 py-3 text-right">
-                    <button className="text-ink-300 hover:text-ink-700"><Eye size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
+  // Real audit trail for the companies this user can see (was a static mock)
+  return <AuditTrail deloitte />
 }
