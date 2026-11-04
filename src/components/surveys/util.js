@@ -1,4 +1,5 @@
 import { useAuth } from '../../context/AuthContext.jsx'
+import { API_ORIGIN } from '../../api/client.js'
 
 export const inputCls = 'w-full px-2.5 py-1.5 rounded-md border border-surface-border bg-white text-[11px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green disabled:bg-surface-muted disabled:text-ink-500'
 
@@ -12,6 +13,24 @@ export function saveBlob(blob, filename) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/**
+ * Downloads a file from a signed URL the API handed out.
+ * Locally the URL is a path on the API ("/api/v1/files/signed/…"), so it must
+ * be resolved against the API's address, not the web app's: opened as is, it
+ * would land on the web app (localhost:5173) and show nothing. In the cloud
+ * it is already a full https:// address. An <a download> click also works
+ * after an await, where window.open would be stopped by the pop-up blocker.
+ */
+export function openSignedFile(url, filename) {
+  const a = document.createElement('a')
+  a.href = /^https?:\/\//.test(url) ? url : `${API_ORIGIN}${url}`
+  if (filename) a.download = filename
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }
 
 export function csvCell(v) {

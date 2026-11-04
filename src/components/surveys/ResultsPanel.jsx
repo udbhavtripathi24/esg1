@@ -6,7 +6,7 @@ import LoadingState from '../LoadingState.jsx'
 import ErrorState from '../ErrorState.jsx'
 import { useResults } from '../../hooks/useSurveys.js'
 import { exportResults, fileDownload } from '../../api/surveys.js'
-import { saveBlob } from './util.js'
+import { openSignedFile, saveBlob } from './util.js'
 import { TYPE_BY_KEY, errText, fmtDate } from './logic.js'
 
 // Chart colours: one hue (brand green) for magnitude; a blue ↔ grey ↔ red
@@ -389,7 +389,7 @@ function FileList({ q, survey }) {
   const [err, setErr] = useState(null)
   const open = async (f) => {
     setErr(null)
-    try { const r = await fileDownload(survey.id, f.id); window.open(r.url, '_blank', 'noopener') } catch (e) { setErr(errText(e, 'Could not open the file')) }
+    try { const r = await fileDownload(survey.id, f.id); openSignedFile(r.url, r.filename || f.filename) } catch (e) { setErr(errText(e, 'Could not open the file')) }
   }
   return (
     <div>

@@ -5,7 +5,7 @@ import ErrorState from '../ErrorState.jsx'
 import { useResponse, useResponses } from '../../hooks/useSurveys.js'
 import { fileDownload } from '../../api/surveys.js'
 import { Drawer } from './parts.jsx'
-import { inputCls } from './util.js'
+import { inputCls, openSignedFile } from './util.js'
 import { errText, fmtDate } from './logic.js'
 
 const VIA = { user: 'Platform', email: 'Personal link', public: 'Public link' }
@@ -75,7 +75,7 @@ function ResponseDrawer({ survey, id, onClose }) {
   const [err, setErr] = useState(null)
   const openFile = async (fid) => {
     setErr(null)
-    try { const x = await fileDownload(survey.id, fid); window.open(x.url, '_blank', 'noopener') } catch (e) { setErr(errText(e, 'Could not open the file')) }
+    try { const x = await fileDownload(survey.id, fid); openSignedFile(x.url, x.filename) } catch (e) { setErr(errText(e, 'Could not open the file')) }
   }
   return (
     <Drawer title={r.data?.respondent || 'Response'} onClose={onClose}>
