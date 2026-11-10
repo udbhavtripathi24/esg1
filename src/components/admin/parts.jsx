@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, ChevronLeft, ChevronRight, Copy, KeyRound } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Copy, KeyRound, MailCheck } from 'lucide-react'
 import { Button } from '../ui.jsx'
 import { Modal } from '../surveys/parts.jsx'
 import { copyText } from '../surveys/util.js'
@@ -64,29 +64,47 @@ export function Pager({ page, pageSize, total, onPage }) {
   )
 }
 
-/** Shows a one-time password with copy buttons; it can't be shown again. */
-export function PasswordModal({ title, name, email, password, onClose }) {
+/** Shows a one-time password with copy buttons; it can't be shown again.
+ *  When an invitation was e-mailed, that is the main message and the password is a fallback. */
+export function PasswordModal({ title, name, email, password, invited = false, onClose }) {
   const [copied, setCopied] = useState(null)
+  const [showFallback, setShowFallback] = useState(!invited)
   const signIn = `${window.location.origin}/login`
   const message = `Hello ${name || ''},\n\nYour Deloitte VISTA account is ready.\nSign in at ${signIn}\nE-mail: ${email}\nTemporary password: ${password}\n\nPlease change it after signing in (Settings → Security).`
   const copy = async (k, t) => { if (await copyText(t)) { setCopied(k); setTimeout(() => setCopied(null), 1500) } }
   return (
     <Modal title={title} onClose={onClose}
       footer={<Button size="sm" onClick={onClose}>Done</Button>}>
-      <div className="flex gap-2 items-start text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4">
-        <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-px" />
-        This password is shown only now. Copy it and give it to {name || 'the user'} securely — the platform doesn’t send e-mails yet.
-      </div>
-      <p className="text-[10px] text-ink-500">E-mail</p>
-      <p className="text-[12px] text-ink-900 mb-3">{email}</p>
-      <p className="text-[10px] text-ink-500">Temporary password</p>
-      <div className="flex items-center gap-2 mt-0.5">
-        <code className="flex-1 font-mono text-sm tracking-wider bg-surface-muted rounded-md px-3 py-2 select-all"><KeyRound size={13} className="inline mr-2 text-ink-300" />{password}</code>
-        <Button size="sm" variant="ghost" onClick={() => copy('pw', password)}><Copy size={12} /> {copied === 'pw' ? 'Copied' : 'Copy'}</Button>
-      </div>
-      <button type="button" className="text-[11px] text-brand-greenDark hover:underline mt-4" onClick={() => copy('msg', message)}>
-        {copied === 'msg' ? 'Copied the sign-in message' : 'Copy a sign-in message to send'}
-      </button>
+      {invited ? (
+        <div className="flex gap-2 items-start text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 mb-4">
+          <MailCheck size={14} className="text-emerald-600 shrink-0 mt-px" />
+          <span>We e-mailed {name || 'them'} an invitation to <strong>{email}</strong> with a link to choose their own password.
+            The link works for 3 days.</span>
+        </div>
+      ) : (
+        <div className="flex gap-2 items-start text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4">
+          <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-px" />
+          This password is shown only now. Copy it and give it to {name || 'the user'} securely — passwords are never sent by e-mail.
+        </div>
+      )}
+      {!showFallback ? (
+        <button type="button" className="text-[11px] text-brand-greenDark hover:underline" onClick={() => setShowFallback(true)}>
+          The e-mail didn’t arrive? Show a temporary password instead
+        </button>
+      ) : (
+        <>
+          <p className="text-[10px] text-ink-500">E-mail</p>
+          <p className="text-[12px] text-ink-900 mb-3">{email}</p>
+          <p className="text-[10px] text-ink-500">Temporary password{invited ? ' (shown only now)' : ''}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <code className="flex-1 font-mono text-sm tracking-wider bg-surface-muted rounded-md px-3 py-2 select-all"><KeyRound size={13} className="inline mr-2 text-ink-300" />{password}</code>
+            <Button size="sm" variant="ghost" onClick={() => copy('pw', password)}><Copy size={12} /> {copied === 'pw' ? 'Copied' : 'Copy'}</Button>
+          </div>
+          <button type="button" className="text-[11px] text-brand-greenDark hover:underline mt-4" onClick={() => copy('msg', message)}>
+            {copied === 'msg' ? 'Copied the sign-in message' : 'Copy a sign-in message to send'}
+          </button>
+        </>
+      )}
     </Modal>
   )
 }

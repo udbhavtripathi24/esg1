@@ -1,252 +1,288 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Zap, Droplet, Recycle, Database } from 'lucide-react'
-import { LineChart, Line, ResponsiveContainer } from 'recharts'
+import { Link } from 'react-router-dom'
+import {
+  ArrowDownRight, ArrowUpRight, ArrowRight, Droplet, Factory, FileSpreadsheet, HardHat, Info, Leaf, MapPin, Recycle,
+  Target, Users, Zap,
+} from 'lucide-react'
 import PageHeader from '../../components/PageHeader.jsx'
-import { Card, Select, EmptyState } from '../../components/ui.jsx'
+import { Card, EmptyState, ProgressBar, Select } from '../../components/ui.jsx'
 import LoadingState from '../../components/LoadingState.jsx'
 import ErrorState from '../../components/ErrorState.jsx'
-import { useClientDashboard, useClientDashboardTasks } from '../../hooks/useDashboard.js'
-import { useHistoricalTrend } from '../../hooks/useAnalytics.js'
+import { useEsgOverview } from '../../hooks/useDashboard.js'
+import { useKpiSeries, useKpiValues } from '../../hooks/useKpis.js'
+import { LocationBars, Sparkline, StackedMonthly } from '../../components/analytics/charts.jsx'
+import { SERIES, fmtValue } from '../../components/analytics/viz.js'
+import { convertUnit, convertValue } from '../../components/analytics/units.js'
+import { useReportingUnits } from '../../hooks/useUnits.js'
 
 /**
- * Dashboard V2 -- same deterministic/structural methodology as V1 (see
- * app/services/dashboard_service.py's module docstring). Adds a real
- * reporting-period selector (was locked to "current quarter" only) and
- * real sparklines on each KPI tile, reusing the exact same trend data
- * already proven correct in Analytics -- no new backend calls beyond
- * calling the existing historical-trend endpoint for the two KPIs this
- * page already cares about.
- *
- * Carbon Emissions is DELIBERATELY absent from active visualization —
- * no emission-factor methodology has been approved. Framework Status
- * and Reporting Calendar are DELIBERATELY absent — no framework-
- * tracking or scheduling model exists anywhere in this backend. None
- * of these are bugs; all three are explicit, disclosed deferrals.
+ * The client's ESG performance for a financial year, from the approved data
+ * sheets — the same figures, by the same rules, as the BRSR and the Admin
+ * Console targets (backend: app/services/esg_overview.py).
  */
 
-const TINT_COLORS = { amber: '#D97706', blue: '#2563EB', green: '#64BC44', purple: '#9333EA' }
+const ICONS = {
+  energy_total: Zap, energy_renewable_share: Leaf, water_withdrawal: Droplet, waste_diverted_share: Recycle,
+  women_workforce_share: Users, ltifr_employees: HardHat,
+}
+const TINTS = {
+  energy_total: 'bg-amber-100 text-amber-600', energy_renewable_share: 'bg-brand-green/10 text-brand-greenDark',
+  water_withdrawal: 'bg-blue-100 text-blue-600', waste_diverted_share: 'bg-emerald-100 text-emerald-700',
+  women_workforce_share: 'bg-purple-100 text-purple-600', ltifr_employees: 'bg-orange-100 text-orange-600',
+}
+// The KPI behind each headline tile, for its 12-month sparkline.
+const SPARK = {
+  energy_total: 'energy_total_mj', energy_renewable_share: 'renewable_share_pct', water_withdrawal: 'water_withdrawal_total',
+  waste_diverted_share: 'waste_diverted_pct', women_workforce_share: 'all_female_pct', ltifr_employees: 'ltifr_employees',
+}
+const SCOPES = [['scope1_total', 'Scope 1', 'Direct: fuel, DG sets, refrigerants, owned vehicles'],
+  ['scope2_total', 'Scope 2', 'Purchased grid electricity'],
+  ['scope3_total', 'Scope 3', 'Business travel, commuting, third-party equipment']]
 
-function currentQuarterRange() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const q = Math.floor(now.getMonth() / 3)
-  const start = new Date(year, q * 3, 1)
-  const end = new Date(year, q * 3 + 3, 0)
-  const iso = (d) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-  }
-  return { periodStart: iso(start), periodEnd: iso(end), label: `Q${q + 1} ${year}` }
+const TARGET_STATUS = {
+  on_track: ['On track', 'bg-brand-green/15 text-brand-greenDark', '#64BC44'],
+  achieved: ['Achieved', 'bg-brand-green/15 text-brand-greenDark', '#4A9038'],
+  at_risk: ['At risk', 'bg-amber-100 text-amber-800', '#F59E0B'],
+  missed: ['Missed', 'bg-red-100 text-red-700', '#D03B3B'],
+  partial: ['Partial year', 'bg-blue-50 text-blue-700', '#C9C8C3'],
+  no_data: ['No data yet', 'bg-ink-100 text-ink-500', '#C9C8C3'],
 }
 
-const TASK_LABELS = { approved: 'Approved', awaiting_approval: 'Awaiting approval', not_submitted: 'Not submitted' }
-const TASK_COLORS = { approved: 'text-status-approved', awaiting_approval: 'text-status-review', not_submitted: 'text-ink-400' }
+function fmt(v, unit) {
+  if (v === null || v === undefined) return '—'
+  const digits = unit === '%' ? 1 : Math.abs(v) >= 100 ? 0 : Math.abs(v) >= 1 ? 2 : 3
+  return v.toLocaleString('en-IN', { maximumFractionDigits: digits, minimumFractionDigits: unit === '%' ? 1 : 0 })
+}
 
-function DashboardKpiTile({ icon: Icon, label, value, unit, delta, trend, tint, sparkData }) {
-  const color = TINT_COLORS[tint] || TINT_COLORS.green
-  const bgTint = { amber: 'bg-amber-100 text-amber-600', blue: 'bg-blue-100 text-blue-600', green: 'bg-brand-green/10 text-brand-greenDark', purple: 'bg-purple-100 text-purple-600' }[tint]
+function Change({ m, previousFy }) {
+  if (m.change_pct === null || m.change_pct === undefined) {
+    return <span className="text-[10px] text-ink-300">{m.previous === null ? `No FY ${previousFy} figure` : 'No change'}</span>
+  }
+  const up = m.change_pct > 0
+  const tone = m.better === null ? 'text-ink-500' : m.better ? 'text-status-approved' : 'text-status-pending'
+  const Arrow = up ? ArrowUpRight : ArrowDownRight
   return (
-    <div className="bg-white border border-surface-border rounded-lg p-4">
-      <div className="flex items-start justify-between">
-        <div className={`w-8 h-8 rounded-md flex items-center justify-center ${bgTint}`}>
-          <Icon size={16} />
-        </div>
-        {delta && (
-          <span className={`text-xs font-medium ${trend === 'up' ? 'text-amber-600' : 'text-status-approved'}`}>
-            {trend === 'up' ? '↗' : '↘'} {delta}
-          </span>
-        )}
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${tone}`}
+      title={`FY ${previousFy}: ${fmt(m.previous, m.unit)} ${m.unit}`}>
+      <Arrow size={12} />{Math.abs(m.change_pct).toFixed(1)}% vs FY {previousFy}
+    </span>
+  )
+}
+
+function Tile({ m, previousFy, spark }) {
+  const Icon = ICONS[m.key] || Leaf
+  return (
+    <div className="bg-white border border-surface-border rounded-lg p-4 flex flex-col">
+      <div className="flex items-start justify-between gap-2">
+        <span className={`w-8 h-8 rounded-md flex items-center justify-center ${TINTS[m.key] || 'bg-surface-muted'}`}><Icon size={16} /></span>
+        <Change m={m} previousFy={previousFy} />
       </div>
-      <div className="mt-3 text-2xl font-semibold text-ink-900">
-        {value}
-        {unit && <span className="text-sm font-normal text-ink-500 ml-1">{unit}</span>}
-      </div>
-      <div className="text-xs text-ink-500 mt-0.5">{label}</div>
-      {sparkData && sparkData.length >= 2 && (
-        <ResponsiveContainer width="100%" height={24} className="mt-2">
-          <LineChart data={sparkData} margin={{ top: 2, bottom: 0, left: 0, right: 0 }}>
-            <Line type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      )}
+      <p className="text-[11px] text-ink-500 mt-3">{m.label}</p>
+      <p className="mt-0.5 text-ink-900">
+        <span className="text-xl font-semibold tabular-nums">{fmt(m.value, m.unit)}</span>
+        {m.value !== null && m.unit && <span className="text-[11px] text-ink-500 ml-1">{m.unit}</span>}
+      </p>
+      {m.months !== null && m.months < 12 && <p className="text-[10px] text-amber-700 mt-1">{m.months} of 12 months reported</p>}
+      <div className="mt-auto pt-2" aria-hidden="true"><Sparkline values={spark} /></div>
     </div>
   )
 }
 
-export default function ClientDashboard() {
-  const navigate = useNavigate()
-  const { periodStart, periodEnd, label: currentLabel } = currentQuarterRange()
+const scaledBy = (v, k) => (v === null || v === undefined ? v : v * k)
 
-  // Real historical periods, built the same way as Analytics -- the
-  // union of periods with real data for the two KPIs this page shows.
-  const energyTrend = useHistoricalTrend('energy.consumption')
-  const waterTrend = useHistoricalTrend('water.withdrawal')
-  const realPeriods = (() => {
-    const seen = new Map()
-    for (const q of [energyTrend, waterTrend]) {
-      for (const point of q.data || []) seen.set(`${point.period_start}|${point.period_end}`, point)
-    }
-    return Array.from(seen.values()).sort((a, b) => new Date(b.period_start) - new Date(a.period_start))
-  })()
-
-  const [selectedPeriod, setSelectedPeriod] = useState(null)
-  const activePeriod = selectedPeriod || (realPeriods[0] ? { period_start: realPeriods[0].period_start, period_end: realPeriods[0].period_end } : { period_start: periodStart, period_end: periodEnd })
-  const activeLabel = selectedPeriod
-    ? `${activePeriod.period_start} — ${activePeriod.period_end}`
-    : (realPeriods[0] ? `${realPeriods[0].period_start} — ${realPeriods[0].period_end} (most recent)` : currentLabel)
-
-  const dashboardQuery = useClientDashboard(activePeriod.period_start, activePeriod.period_end)
-  const tasksQuery = useClientDashboardTasks(activePeriod.period_start, activePeriod.period_end)
-
-  const energySpark = (energyTrend.data || []).slice(-6).map((d) => ({ value: d.value }))
-  const waterSpark = (waterTrend.data || []).slice(-6).map((d) => ({ value: d.value }))
-
-  const periodSelector = (
-    <div className="mb-5 max-w-xs">
-      <label className="text-[10px] text-ink-500 mb-1 block">Reporting period</label>
-      <Select
-        value={selectedPeriod ? `${selectedPeriod.period_start}|${selectedPeriod.period_end}` : ''}
-        onChange={(e) => {
-          if (!e.target.value) { setSelectedPeriod(null); return }
-          const [ps, pe] = e.target.value.split('|')
-          setSelectedPeriod({ period_start: ps, period_end: pe })
-        }}
-      >
-        {realPeriods.length === 0 && <option value="">{currentLabel} (no historical data yet)</option>}
-        {realPeriods.map((p) => (
-          <option key={p.period_start} value={`${p.period_start}|${p.period_end}`}>
-            {p.period_start} — {p.period_end}
-          </option>
-        ))}
-      </Select>
-    </div>
+function ScopeChange({ item, previousFy }) {
+  if (!item || item.value === null || item.previous === null || !item.previous) return null
+  const pct = ((item.value - item.previous) / item.previous) * 100
+  const Arrow = pct > 0 ? ArrowUpRight : ArrowDownRight
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${pct > 0 ? 'text-status-pending' : 'text-status-approved'}`}>
+      <Arrow size={12} />{Math.abs(pct).toFixed(1)}% vs FY {previousFy}
+    </span>
   )
+}
 
-  if (dashboardQuery.isLoading) {
-    return (
-      <div>
-        <PageHeader title="Dashboard." subtitle={activeLabel} />
-        {periodSelector}
-        <LoadingState label="Loading dashboard…" />
-      </div>
-    )
+export default function Dashboard() {
+  const [fy, setFy] = useState(null)
+  const q = useEsgOverview(fy)
+  const year = q.data?.fy
+  const hasData = (q.data?.years || []).length > 0
+  const spark = useKpiSeries({ codes: Object.values(SPARK).concat(SCOPES.map((x) => x[0])).join(','), by: 'month', fy: year },
+    null, { enabled: hasData })
+  const ghg = useKpiValues({ codes: 'ghg_total,scope1_total,scope2_total,scope3_total', fy: year }, null, { enabled: hasData })
+  const energyByLoc = useKpiSeries({ codes: 'energy_total_mj,renewable_share_pct', by: 'location', fy: year }, null, { enabled: hasData })
+  // Admin Console → Units: show energy, water, emissions and waste in the company's units.
+  const prefs = useReportingUnits()
+  const inUnits = (m) => {
+    const c = convertValue(m.value, m.unit, prefs)
+    return { ...m, value: c.value, unit: c.unit, previous: m.previous === null || m.previous === undefined ? m.previous : m.previous * c.scale }
   }
-  if (dashboardQuery.isError) {
-    return (
-      <div>
-        <PageHeader title="Dashboard." subtitle={activeLabel} />
-        {periodSelector}
-        <ErrorState
-          message={dashboardQuery.error?.message || 'Could not load the dashboard.'}
-          onRetry={() => dashboardQuery.refetch()}
-        />
-      </div>
-    )
-  }
+  const em = convertUnit('tCO₂e', 1, prefs)
+  const en = convertUnit('GJ', 0.001, prefs)
 
-  const data = dashboardQuery.data
-  const hasAnyData = data.energy_consumption.value !== null || data.water_withdrawal.value !== null
-  const fmtDelta = (pct) => (pct === null || pct === undefined) ? undefined : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
-  const trendFor = (pct) => (pct !== null && pct !== undefined && pct < 0) ? 'down' : 'up'
-
-  if (!hasAnyData) {
-    return (
-      <div>
-        <PageHeader title="Dashboard." subtitle={activeLabel} />
-        {periodSelector}
-        <div className="bg-white border border-surface-border rounded-lg">
-          <EmptyState
-            title="No approved data available"
-            subtitle="Once a submission for this period is reviewed and approved, your dashboard will populate here."
-          />
-        </div>
-      </div>
-    )
-  }
+  if (q.isLoading) return <LoadingState label="Loading your ESG figures…" />
+  if (q.isError) return <ErrorState message={q.error?.message || 'Could not load the dashboard.'} onRetry={() => q.refetch()} />
+  const d = q.data
+  const metrics = d.metrics.map(inUnits)
+  const head = metrics.slice(0, 6)
+  const more = metrics.slice(6)
+  const gaps = d.coverage.sheets.filter((s) => s.months < 12)
 
   return (
     <div>
-      <PageHeader title="Dashboard." subtitle={activeLabel} />
-      {periodSelector}
+      <PageHeader title="Dashboard." subtitle={`ESG performance for FY ${d.fy}, from your approved data sheets`} />
 
-      <div className="mb-6">
-        <p className="text-xs font-semibold text-ink-900 mb-3">ESG Performance Overview</p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <DashboardKpiTile
-            icon={Zap} label="Energy Consumption" tint="amber"
-            value={data.energy_consumption.value !== null ? Math.round(data.energy_consumption.value).toLocaleString() : '—'}
-            unit={data.energy_consumption.value !== null ? data.energy_consumption.unit : undefined}
-            delta={fmtDelta(data.energy_qoq_percentage)} trend={trendFor(data.energy_qoq_percentage)}
-            sparkData={energySpark}
-          />
-          <DashboardKpiTile
-            icon={Droplet} label="Water Withdrawal" tint="blue"
-            value={data.water_withdrawal.value !== null ? data.water_withdrawal.value.toLocaleString() : '—'}
-            unit={data.water_withdrawal.value !== null ? data.water_withdrawal.unit : undefined}
-            delta={fmtDelta(data.water_qoq_percentage)} trend={trendFor(data.water_qoq_percentage)}
-            sparkData={waterSpark}
-          />
-          <DashboardKpiTile
-            icon={Recycle} label="Water Recycled" tint="green"
-            value={data.water_recycled_percentage !== null ? data.water_recycled_percentage.toFixed(0) : '—'}
-            unit={data.water_recycled_percentage !== null ? '%' : undefined}
-          />
-          <DashboardKpiTile
-            icon={Database} label="Domain Coverage" tint="purple"
-            value={`${data.domain_completeness.approved_count}/${data.domain_completeness.total}`}
-            unit="domains"
-          />
-        </div>
-        {/* Carbon Emissions: honest deferred state, not a computed card. */}
-        <p className="text-[10px] text-ink-300 mt-3">
-          Carbon emissions: methodology not yet configured — awaiting approved emission-factor methodology.
-        </p>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Card title="My Tasks" subtitle="Submission status for this reporting period">
-          {tasksQuery.isLoading ? (
-            <LoadingState label="Loading…" />
-          ) : tasksQuery.isError ? (
-            <ErrorState message="Could not load task status." onRetry={() => tasksQuery.refetch()} />
-          ) : (
-            <div className="space-y-3">
-              {tasksQuery.data.map((t) => (
-                <div key={t.upload_type_code} className="flex items-center justify-between border-b border-surface-border last:border-0 pb-3 last:pb-0">
-                  <div>
-                    <p className="text-xs font-medium text-ink-900">{t.display_name}</p>
-                    <p className={`text-[10px] mt-0.5 ${TASK_COLORS[t.status]}`}>{TASK_LABELS[t.status]}</p>
-                  </div>
-                  {t.status !== 'approved' && (
-                    <button
-                      onClick={() => navigate('/client/upload-center')}
-                      className="text-[10px] font-medium text-brand-green hover:underline"
-                    >
-                      Upload →
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card title="Domain Completeness" subtitle={`${data.domain_completeness.percentage}% of MVP domains approved this period`}>
-          <div className="space-y-2.5">
-            {Object.entries(data.domain_completeness.domains).map(([code, approved]) => (
-              <div key={code} className="flex items-center justify-between text-[10px]">
-                <span className="text-ink-700 capitalize">{code.replace('_data', '')}</span>
-                <span className={approved ? 'text-status-approved font-medium' : 'text-ink-300'}>
-                  {approved ? 'Approved' : 'Not yet'}
-                </span>
-              </div>
-            ))}
+      {d.years.length > 0 && (
+        <div className="flex flex-wrap items-end gap-3 mb-5">
+          <div className="w-48">
+            <label htmlFor="dash-fy" className="block text-[10px] text-ink-500 mb-1">Financial year</label>
+            <Select id="dash-fy" value={d.fy} onChange={(e) => setFy(e.target.value)}>
+              {d.years.map((y) => <option key={y} value={y}>FY {y}</option>)}
+            </Select>
           </div>
-        </Card>
-      </div>
+          <p className="text-[10px] text-ink-500 flex items-center gap-1 pb-2">
+            <Info size={12} /> The same figures as your BRSR. Changes compare with FY {d.previous_fy}.
+          </p>
+        </div>
+      )}
+
+      {d.years.length === 0 ? (
+        <EmptyState icon={FileSpreadsheet} title="No approved data yet"
+          subtitle="Upload your data sheets in the Upload Center. Once they are approved, your energy, water, waste, people and safety figures appear here."
+          action={<Link to="/client/upload-center" className="text-sm text-brand-green hover:underline">Go to the Upload Center</Link>} />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {head.map((m) => <Tile key={m.key} m={m} previousFy={d.previous_fy} spark={spark.data?.series?.[SPARK[m.key]]} />)}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">
+            <Card className="lg:col-span-2" title="Greenhouse gas emissions" icon={Factory}
+              action={<Link to="/client/analytics" className="text-xs text-brand-green hover:underline inline-flex items-center gap-1">Analytics <ArrowRight size={12} /></Link>}>
+              <div className="grid sm:grid-cols-[13rem_1fr] gap-4">
+                <div>
+                  <p className="text-[11px] text-ink-500">Scope 1 + 2, FY {d.fy}</p>
+                  <p className="text-ink-900"><span className="text-3xl font-semibold tabular-nums">{fmtValue(scaledBy(ghg.data?.items?.ghg_total?.value, em.scale), 0)}</span>
+                    <span className="text-xs text-ink-500 ml-1">{em.unit}</span></p>
+                  <ScopeChange item={ghg.data?.items?.ghg_total} previousFy={d.previous_fy} />
+                  <ul className="mt-4 space-y-2.5">
+                    {SCOPES.map(([code, label, hint], i) => (
+                      <li key={code} className="flex gap-2">
+                        <span className="w-2.5 h-2.5 rounded-sm mt-1 shrink-0" style={{ background: SERIES[i] }} aria-hidden="true" />
+                        <div className="flex-1 min-w-0">
+                          <p className="flex justify-between text-[11px]"><span className="text-ink-900 font-medium">{label}</span>
+                            <span className="tabular-nums text-ink-900">{fmtValue(scaledBy(ghg.data?.items?.[code]?.value, em.scale), 1)}</span></p>
+                          <p className="text-[10px] text-ink-500 truncate" title={hint}>{hint}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="min-w-0">
+                  {spark.data && <StackedMonthly months={spark.data.labels} series={spark.data.series} unit={em.unit} scale={em.scale} height={230}
+                    parts={SCOPES.map(([c, l]) => [c, l])} />}
+                </div>
+              </div>
+            </Card>
+            <Card title="Energy by location" icon={MapPin}>
+              <p className="text-[10px] text-ink-500 mb-2">FY {d.fy} · {en.unit} · share of the total</p>
+              {energyByLoc.data && <LocationBars labels={energyByLoc.data.labels} values={energyByLoc.data.series.energy_total_mj} unit={en.unit} scale={en.scale} />}
+              {energyByLoc.data && (
+                <div className="mt-4 pt-3 border-t border-surface-border">
+                  <p className="text-[11px] font-medium text-ink-900 mb-2">Renewable share by location</p>
+                  <ul className="space-y-2">
+                    {energyByLoc.data.labels.map((l, i) => {
+                      const v = energyByLoc.data.series.renewable_share_pct?.[i]
+                      return (
+                        <li key={l}>
+                          <p className="flex justify-between text-[10px] mb-1"><span className="text-ink-700">{l}</span>
+                            <span className="tabular-nums text-ink-900 font-medium">{v === null || v === undefined ? '—' : `${fmtValue(v, 1)}%`}</span></p>
+                          <ProgressBar pct={Math.max(0, Math.min(100, v || 0))} />
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">
+            <Card className="lg:col-span-2" title="Targets" icon={Target}
+              action={<Link to="/client/admin-console?tab=targets" className="text-xs text-brand-green hover:underline">Manage targets</Link>}>
+              {d.targets.length === 0 ? (
+                <p className="text-xs text-ink-500">No targets yet. Set goals for energy, water, waste or people in Admin Console → Targets.</p>
+              ) : (
+                <div className="divide-y divide-surface-border">
+                  {d.targets.map((t0) => {
+                    const k = convertUnit(t0.unit, 1, prefs)
+                    const t = { ...t0, unit: k.unit, current: scaledBy(t0.current, k.scale), target_value: scaledBy(t0.target_value, k.scale) }
+                    const [label, badge, bar] = TARGET_STATUS[t.status] || TARGET_STATUS.no_data
+                    return (
+                      <div key={t.id} className="py-3 first:pt-0 last:pb-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm text-ink-900">{t.title}</p>
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${badge}`}>{label}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <div className="flex-1"><ProgressBar pct={Math.max(0, Math.min(100, t.progress ?? 0))} color={bar} /></div>
+                          <span className="text-[10px] text-ink-500 whitespace-nowrap tabular-nums">
+                            {fmt(t.current, t.unit)} → {fmt(t.target_value, t.unit)} {t.unit} by FY {t.target_fy}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Card>
+
+            <Card title="Data sheets" icon={FileSpreadsheet}
+              action={<Link to="/client/upload-center" className="text-xs text-brand-green hover:underline">Upload Center</Link>}>
+              <p className="text-2xl font-semibold text-ink-900 tabular-nums">{d.coverage.complete}<span className="text-sm text-ink-500 font-normal"> of {d.coverage.total}</span></p>
+              <p className="text-[11px] text-ink-500 mb-2">complete for all 12 months of FY {d.fy}</p>
+              <ProgressBar pct={(d.coverage.complete / d.coverage.total) * 100} />
+              {gaps.length > 0 && (
+                <ul className="mt-3 space-y-1 max-h-40 overflow-y-auto">
+                  {gaps.map((s) => (
+                    <li key={s.sheet} className="flex justify-between text-[11px]">
+                      <span className="text-ink-700 truncate mr-2">{s.title}</span>
+                      <span className={s.months ? 'text-amber-700' : 'text-ink-300'}>{s.months ? `${s.months}/12 months` : 'Not uploaded'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+
+          <Card className="mt-5" title="More figures" padded={false}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-[10px] text-ink-500 border-b border-surface-border">
+                    <th className="px-5 py-2 font-medium">Figure</th>
+                    <th className="px-3 py-2 font-medium text-right">FY {d.fy}</th>
+                    <th className="px-3 py-2 font-medium text-right">FY {d.previous_fy}</th>
+                    <th className="px-5 py-2 font-medium text-right">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {more.map((m) => (
+                    <tr key={m.key} className="border-b border-surface-border last:border-0">
+                      <td className="px-5 py-2.5 text-ink-900">{m.label} <span className="text-ink-300">{m.unit}</span></td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-900">{fmt(m.value, m.unit)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-500">{fmt(m.previous, m.unit)}</td>
+                      <td className="px-5 py-2.5 text-right"><Change m={m} previousFy={d.previous_fy} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+          <p className="text-[10px] text-ink-300 mt-3">
+            Scope 1, 2 and 3 are calculated from the DG-set, HVAC, travel, commute and energy sheets with the factors in Admin Console → Factors Directory.
+          </p>
+        </>
+      )}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Download, FileUp, KeyRound, Loader2, Pencil, Search, UserCheck, UserPlus, UserX, Users } from 'lucide-react'
 import { Button, EmptyState } from '../ui.jsx'
 import LoadingState from '../LoadingState.jsx'
@@ -9,7 +10,10 @@ import {
 import { Modal } from '../surveys/parts.jsx'
 import { csvCell, inputCls, saveBlob } from '../surveys/util.js'
 import { Chip, Initials, PasswordModal, Pager, RolePill, StatusDot, TableShell } from './parts.jsx'
-import { td, th } from './util.js'
+import { fmtWhen, td, th } from './util.js'
+import { getAuthConfig } from '../../api/auth.js'
+
+const useEmailEnabled = () => useQuery({ queryKey: ['auth-config'], queryFn: getAuthConfig, staleTime: 5 * 60_000 }).data?.email_enabled === true
 
 const PAGE = 10
 
@@ -90,7 +94,7 @@ export default function UserDirectoryTab({ companyId, canManage, toast }) {
           <table className="w-full">
             <thead><tr className="bg-surface-muted/50">
               <th className={`${th} pl-5`}>Employee</th><th className={th}>E-mail</th><th className={th}>Department</th>
-              <th className={th}>Role</th><th className={th}>Status</th>{canManage && <th className={`${th} text-right pr-5`}>Action</th>}
+              <th className={th}>Role</th><th className={th}>Status</th><th className={th}>Last sign-in</th>{canManage && <th className={`${th} text-right pr-5`}>Action</th>}
             </tr></thead>
             <tbody>
               {d.items.map((u) => (
@@ -104,7 +108,12 @@ export default function UserDirectoryTab({ companyId, canManage, toast }) {
                   <td className={`${td} text-ink-700`}>{u.email}</td>
                   <td className={`${td} text-ink-700`}>{u.department || <span className="text-ink-300">—</span>}</td>
                   <td className={td}><RolePill role={u.role} /></td>
-                  <td className={td}><StatusDot active={u.status === 'active'} /></td>
+                  <td className={td}>
+                    <StatusDot active={u.status === 'active'} />
+                    {u.locked && <span className="ml-1.5 text-[9px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded"
+                      title="Locked for a few minutes after repeated wrong passwords. Resetting the password unlocks it.">Locked</span>}
+                  </td>
+                  <td className={`${td} text-ink-500 whitespace-nowrap`}>{u.last_login_at ? fmtWhen(u.last_login_at) : <span className="text-ink-300">Never</span>}</td>
                   {canManage && (
                     <td className={`${td} text-right pr-5 whitespace-nowrap`}>
                       <IconAction title="Edit name and department" onClick={() => setModal({ kind: 'edit', user: u })}><Pencil size={13} /></IconAction>
@@ -128,7 +137,8 @@ export default function UserDirectoryTab({ companyId, canManage, toast }) {
 
       {modal?.kind === 'add' && <AddUserModal companyId={companyId} roles={d.roles} departments={d.departments}
         onClose={() => setModal(null)}
-        onCreated={(r) => setModal({ kind: 'password', title: `${r.user.name} added`, name: r.user.name, email: r.user.email, password: r.temporary_password })} />}
+        onCreated={(r) => setModal({ kind: 'password', title: `${r.user.name} added`, name: r.user.name, email: r.user.email,
+          password: r.temporary_password, invited: !!r.invite_sent })} />}
       {modal?.kind === 'edit' && <EditUserModal companyId={companyId} user={modal.user} departments={d.departments}
         onClose={() => setModal(null)} onSaved={() => { setModal(null); toast('Saved') }} />}
       {modal?.kind === 'import' && <ImportModal companyId={companyId} onClose={() => setModal(null)} toast={toast} />}
@@ -162,15 +172,17 @@ function Label({ children }) {
 
 function AddUserModal({ companyId, roles, departments, onClose, onCreated }) {
   const create = useCreateUser(companyId)
-  const [f, setF] = useState({ name: '', email: '', department: '', role_code: 'Client Uploader' })
+  const emailOn = useEmailEnabled()
+  const [f, setF] = useState({ name: '', email: '', department: '', role_code: 'Client Uploader', send_invite: true })
   const [err, setErr] = useState(null)
   const submit = async () => {
     setErr(null)
-    try { onCreated(await create.mutateAsync(f)) } catch (e) { setErr(e.message || 'Could not add the user') }
+    try { onCreated(await create.mutateAsync({ ...f, send_invite: emailOn && f.send_invite })) } catch (e) { setErr(e.message || 'Could not add the user') }
   }
   const role = roles.find((r) => r.code === f.role_code)
   return (
-    <Modal title="Add user" subtitle="They get a temporary password to sign in with." onClose={onClose}
+    <Modal title="Add user" onClose={onClose}
+      subtitle={emailOn && f.send_invite ? 'They get an e-mail with a link to choose their password.' : 'They get a temporary password to sign in with.'}
       footer={<><Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
         <Button size="sm" onClick={submit} disabled={!f.name.trim() || !f.email.trim() || create.isPending}>
           {create.isPending && <Loader2 size={13} className="animate-spin" />} Add user</Button></>}>
@@ -187,6 +199,12 @@ function AddUserModal({ companyId, roles, departments, onClose, onCreated }) {
           </select>
           {role && <p className="text-[10px] text-ink-500 mt-1">{role.description}</p>}
         </div>
+        {emailOn && (
+          <label className="flex items-center gap-2 text-[11px] text-ink-700">
+            <input type="checkbox" className="accent-brand-green" checked={f.send_invite} onChange={(e) => setF({ ...f, send_invite: e.target.checked })} />
+            E-mail them an invitation
+          </label>
+        )}
         {err && <p className="text-[11px] text-status-pending" role="alert">{err}</p>}
       </div>
     </Modal>
@@ -218,6 +236,8 @@ function EditUserModal({ companyId, user, departments, onClose, onSaved }) {
 
 function ImportModal({ companyId, onClose, toast }) {
   const imp = useImportUsers(companyId)
+  const emailOn = useEmailEnabled()
+  const [invite, setInvite] = useState(true)
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [done, setDone] = useState(null)
@@ -227,12 +247,12 @@ function ImportModal({ companyId, onClose, toast }) {
     { type: 'text/csv' }), 'users-import-template.csv')
   const check = async (f) => {
     setFile(f); setErr(null); setPreview(null)
-    try { setPreview(await imp.mutateAsync({ file: f, dryRun: true })) } catch (e) { setErr(e.message || 'Could not read the file') }
+    try { setPreview(await imp.mutateAsync({ file: f, dryRun: true, sendInvites: false })) } catch (e) { setErr(e.message || 'Could not read the file') }
   }
   const run = async () => {
     setErr(null)
     try {
-      const r = await imp.mutateAsync({ file, dryRun: false })
+      const r = await imp.mutateAsync({ file, dryRun: false, sendInvites: emailOn && invite })
       setDone(r.created)
       toast(`${r.created.length} users imported`)
     } catch (e) { setErr(e.message || 'Import failed') }
@@ -244,9 +264,12 @@ function ImportModal({ companyId, onClose, toast }) {
   }
 
   if (done) {
+    const invited = done.filter((u) => u.invite_sent).length
     return (
       <Modal title={`${done.length} users imported`} wide onClose={onClose}
-        subtitle="Download their temporary passwords now — they're shown only once."
+        subtitle={invited
+          ? `Invitations e-mailed to ${invited} ${invited === 1 ? 'person' : 'people'}. The temporary passwords below are a fallback, shown only once.`
+          : "Download their temporary passwords now — they're shown only once."}
         footer={<><Button size="sm" variant="ghost" onClick={onClose}>Done</Button><Button size="sm" onClick={download}><Download size={12} /> Download CSV with passwords</Button></>}>
         <div className="max-h-80 overflow-y-auto border border-surface-border rounded-md">
           <table className="w-full"><tbody>
@@ -272,6 +295,12 @@ function ImportModal({ companyId, onClose, toast }) {
           <input type="file" className="hidden" accept=".csv,.xlsx,.txt" onChange={(e) => e.target.files?.[0] && check(e.target.files[0])} />
         </label>
         <button type="button" className="text-[11px] text-brand-greenDark hover:underline" onClick={template}>Download template</button>
+        {emailOn && (
+          <label className="ml-auto flex items-center gap-2 text-[11px] text-ink-700">
+            <input type="checkbox" className="accent-brand-green" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
+            E-mail each person an invitation
+          </label>
+        )}
       </div>
       {imp.isPending && !preview && <p className="text-[11px] text-ink-500 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Checking…</p>}
       {err && <p className="text-[11px] text-status-pending mb-2" role="alert">{err}</p>}

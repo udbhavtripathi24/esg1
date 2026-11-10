@@ -25,12 +25,46 @@ export function saveBlob(blob, filename) {
  */
 export function openSignedFile(url, filename) {
   const a = document.createElement('a')
-  a.href = /^https?:\/\//.test(url) ? url : `${API_ORIGIN}${url}`
+  a.href = fileHref(url)
   if (filename) a.download = filename
   a.rel = 'noopener'
   document.body.appendChild(a)
   a.click()
   a.remove()
+}
+
+/** A signed link as a full address: local links are paths on the API. */
+export function fileHref(url) {
+  return /^https?:\/\//.test(url) ? url : `${API_ORIGIN}${url}`
+}
+
+/**
+ * Opens a file in a new tab. The tab is opened during the click, which the
+ * pop-up blocker allows, and is pointed at the signed link once the API has
+ * answered. If the API says the file can't be shown, the tab closes and the
+ * file downloads instead.
+ */
+export async function showFileInTab(getLink) {
+  const tab = window.open('', '_blank')
+  if (tab) {
+    tab.opener = null
+    try {
+      tab.document.title = 'Opening…'
+      tab.document.body.textContent = 'Opening the file…'
+    } catch { /* not ours to write to: fine */ }
+  }
+  try {
+    const r = await getLink()
+    if (r.inline && tab) {
+      tab.location.replace(fileHref(r.url))
+      return
+    }
+    tab?.close()
+    openSignedFile(r.url, r.filename)
+  } catch (e) {
+    tab?.close()
+    throw e
+  }
 }
 
 export function csvCell(v) {

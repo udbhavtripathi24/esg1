@@ -24,3 +24,8 @@ export function getClientDashboard(periodStart, periodEnd) {
 export function getClientDashboardTasks(periodStart, periodEnd) {
   return apiClient.get('/dashboard/client/tasks', { params: { period_start: periodStart, period_end: periodEnd } })
 }
+
+/** Headline ESG figures from the approved data sheets for a financial year (default: latest full year). */
+export function getEsgOverview(fy) {
+  return apiClient.get('/dashboard/client/esg', { params: fy ? { fy } : {} })
+}

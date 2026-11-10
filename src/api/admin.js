@@ -32,10 +32,11 @@ export const setUserStatus = (id, active, companyId) =>
   apiClient.post(`/admin/users/${id}/status`, { active }, { params: withCompany({}, companyId) })
 export const resetUserPassword = (id, companyId) =>
   apiClient.post(`/admin/users/${id}/reset-password`, undefined, { params: withCompany({}, companyId) })
-export function importUsers(file, dryRun, companyId) {
+export function importUsers(file, dryRun, companyId, sendInvites = true) {
   const fd = new FormData()
   fd.append('file', file)
   fd.append('dry_run', dryRun ? 'true' : 'false')
+  fd.append('send_invites', sendInvites ? 'true' : 'false')
   if (companyId) fd.append('company_id', String(companyId))
   return apiClient.post('/admin/users/import', fd)
 }

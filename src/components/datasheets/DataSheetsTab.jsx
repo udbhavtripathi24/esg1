@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Download, Upload, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Table2, X, FileSpreadsheet,
+  Download, Upload, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Table2, X, FileSpreadsheet, ArrowRightLeft,
 } from 'lucide-react'
 import { Button, Card, Field, Select, ProgressBar, EmptyState } from '../ui.jsx'
 import FileDropzone from '../FileDropzone.jsx'
+import UploadsCard from './UploadsCard.jsx'
+import { groupConversions } from '../analytics/units.js'
 import LoadingState from '../LoadingState.jsx'
 import ErrorState from '../ErrorState.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -137,7 +139,16 @@ export default function DataSheetsTab({ pushToast }) {
                           <p className="font-medium text-ink-900">{s.title}</p>
                           {s.has_category && <p className="text-[9px] text-ink-500">Rows for Employees and Workers</p>}
                         </td>
-                        <td className="px-2 py-2.5 text-ink-700">{s.departments.join(', ')}</td>
+                        <td className="px-2 py-2.5 text-ink-700">
+                          {s.departments.join(', ')}
+                          {(s.uploaders?.length > 0 || s.reviewers?.length > 0) && (
+                            <p className="text-[9px] text-ink-500 mt-0.5">
+                              {s.uploaders?.length > 0 && <>Uploads: {s.uploaders.join(', ')}</>}
+                              {s.uploaders?.length > 0 && s.reviewers?.length > 0 && ' · '}
+                              {s.reviewers?.length > 0 && <>Reviews: {s.reviewers.join(', ')}</>}
+                            </p>
+                          )}
+                        </td>
                         <td className="px-2 py-2.5">
                           <div className="flex items-center gap-2">
                             <div className="flex-1"><ProgressBar pct={pct} color={c.months >= 12 ? '#64BC44' : c.months ? '#F5A623' : '#E5E7EB'} /></div>
@@ -150,11 +161,12 @@ export default function DataSheetsTab({ pushToast }) {
                         <td className="px-2 py-2.5 text-ink-500">{c.locations?.length ? c.locations.join(', ') : '–'}</td>
                         <td className="px-5 py-2.5">
                           <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => downloadTemplate(s.code, s.title).catch((e) => pushToast(errMessage(e, 'Download failed.')))}>
+                            <Button variant="ghost" size="sm" onClick={() => downloadTemplate(s.code, s.title, isDeloitte ? companyId : null).catch((e) => pushToast(errMessage(e, 'Download failed.')))}>
                               <Download size={12} /> Template
                             </Button>
-                            <Button variant="subtle" size="sm" disabled={!s.available} onClick={() => setOpen(s.code)}
-                              title={s.available ? '' : 'This sheet is not enabled on the server yet'}>
+                            <Button variant="subtle" size="sm" disabled={!s.available || s.can_upload === false} onClick={() => setOpen(s.code)}
+                              title={!s.available ? 'This sheet is not enabled on the server yet'
+                                : s.can_upload === false ? `${s.domain_title} data is uploaded by ${s.uploaders.join(', ')} (Admin Console → Role Assignment)` : ''}>
                               <Upload size={12} /> Upload
                             </Button>
                           </div>
@@ -166,6 +178,10 @@ export default function DataSheetsTab({ pushToast }) {
               </table>
             </div>
           </Card>
+
+          <UploadsCard fy={fy} companyId={isDeloitte ? companyId : null} sheets={dept ? new Set(shown.map((s) => s.code)) : null}
+            pushToast={pushToast}
+            onUpload={(code) => { const sh = sheetByCode[code]; if (sh?.available && sh.can_upload !== false) setOpen(code) }} />
         </>
       )}
     </div>
@@ -233,6 +249,7 @@ function UploadPanel({ sheet, companyId, fy, onClose, pushToast }) {
         await submitVersion.mutateAsync({ publicId: ds.public_id, versionPublicId: v1.public_id })
       }
       qc.invalidateQueries({ queryKey: ['datasheets', 'coverage'] })
+      qc.invalidateQueries({ queryKey: ['datasheets', 'uploads'] })
       pushToast(action === 'submit'
         ? `${sheet.title} submitted for review. Its figures reach the BRSR once approved.`
         : `${sheet.title} saved as a draft.`)
@@ -285,7 +302,7 @@ function UploadPanel({ sheet, companyId, fy, onClose, pushToast }) {
           <p>Each row is one month (Start_Date to End_Date) for one location{sheet.has_category ? ', separately for Employees and Workers' : ''}.</p>
           <p>Several months can be in one file. A month already in another file of the same upload is refused, so nothing is counted twice.</p>
           <p>Blank cells count as 0. Leave the header row exactly as in the template.</p>
-          <Button variant="ghost" size="sm" onClick={() => downloadTemplate(sheet.code, sheet.title).catch((e) => pushToast(errMessage(e, 'Download failed.')))}>
+          <Button variant="ghost" size="sm" onClick={() => downloadTemplate(sheet.code, sheet.title, companyId).catch((e) => pushToast(errMessage(e, 'Download failed.')))}>
             <Download size={12} /> Download template
           </Button>
         </div>
@@ -332,6 +349,16 @@ function CheckResult({ result }) {
             </button>
           )}
         </div>
+      )}
+      {result.conversions?.length > 0 && (
+        <ul className="space-y-1">
+          {groupConversions(result.conversions).map((g) => (
+            <li key={`${g.from}-${g.to}`} className="flex items-start gap-1.5 text-[10px] text-blue-800" title={g.columns.join('\n')}>
+              <ArrowRightLeft size={11} className="mt-px shrink-0" />
+              {g.columns.length === 1 ? g.columns[0] : `${g.columns.length} columns`} in {g.from}: converted to {g.to} (×{g.factor.toLocaleString('en-IN')}) as the template asks — Admin Console → Units
+            </li>
+          ))}
+        </ul>
       )}
       {warnings.length > 0 && (
         <ul className="space-y-1">

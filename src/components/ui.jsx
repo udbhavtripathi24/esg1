@@ -1,3 +1,4 @@
+import { Children, cloneElement, isValidElement, useId } from 'react'
 import { statusTint } from '../data/mockData'
 
 export function StatusPill({ status }) {
@@ -53,17 +54,30 @@ export function Button({ children, variant = 'primary', size = 'md', className =
   )
 }
 
+const CONTROLS = new Set(['input', 'select', 'textarea'])
+
+/** A label above a control. The label is tied to the first control inside (for screen readers and clicks). */
 export function Field({ label, required, optional, children }) {
+  const autoId = useId()
+  let controlId = null
+  const kids = Children.map(children, (k) => {
+    if (controlId || !isValidElement(k)) return k
+    if (CONTROLS.has(k.type) || k.type === Input || k.type === Select) {
+      controlId = k.props.id || autoId
+      return k.props.id ? k : cloneElement(k, { id: controlId })
+    }
+    return k
+  })
   return (
     <div>
       {label && (
-        <label className="block text-[8px] text-ink-700 mb-1.5">
+        <label htmlFor={controlId || undefined} className="block text-[8px] text-ink-700 mb-1.5">
           {label}
           {required && <span className="text-status-pending">*</span>}
           {optional && <span className="text-ink-300 text-[8px] ml-1">Optional</span>}
         </label>
       )}
-      {children}
+      {kids}
     </div>
   )
 }

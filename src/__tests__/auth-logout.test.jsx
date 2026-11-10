@@ -10,7 +10,7 @@
  * And that protected routes redirect after logout.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { waitFor } from '@testing-library/react'
 import { renderHook, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
@@ -61,7 +61,6 @@ describe('Logout Authentication Tests', () => {
     // Manually set authenticated state (simulating successful login)
     act(() => {
       result.current.login = vi.fn().mockImplementation(async () => {
-        const mockUser = { id: 1, email: 'test@test.com', permissions: [] }
         localStorage.setItem(TOKEN_STORAGE_KEY, 'test-token-123')
         // This would normally update state via login(), but for this test
         // we're verifying the logout behavior

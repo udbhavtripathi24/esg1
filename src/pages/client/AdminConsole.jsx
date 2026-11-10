@@ -6,25 +6,28 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import { Toast } from '../../components/assurance/parts.jsx'
 import { useToast } from '../../components/assurance/format.js'
 import UserDirectoryTab from '../../components/admin/UserDirectoryTab.jsx'
+import KpiCatalogueTab from '../../components/admin/KpiCatalogueTab.jsx'
 import RoleAssignmentTab from '../../components/admin/RoleAssignmentTab.jsx'
 import TargetsTab from '../../components/admin/TargetsTab.jsx'
 import ApprovalHistoryTab from '../../components/admin/ApprovalHistoryTab.jsx'
 import FactorsTab from '../../components/admin/FactorsTab.jsx'
+import UnitsTab from '../../components/admin/UnitsTab.jsx'
 import IntegrationsTab from '../../components/admin/IntegrationsTab.jsx'
 import AuditTrail from '../../components/admin/AuditTrail.jsx'
 
 /**
- * Admin Console (client portal) — the Figma's six tabs plus the audit log:
- * User Directory · Role Assignment · Targets · Approval History · Factors ·
- * Directory / API · Audit Logs. Each tab appears only with the permission
+ * Admin Console (client portal): User Directory · Role Assignment (people and KPI domains) ·
+ * Frameworks & KPIs · Targets · Approval History · Factors Directory · Units · Directory / API · Audit Logs. Each tab appears only with the permission
  * its API needs; the API enforces the same rules.
  */
 const TABS = [
   { key: 'users', label: 'User Directory', perm: 'user:read' },
   { key: 'roles', label: 'Role Assignment', perm: 'user:read' },
+  { key: 'kpis', label: 'Frameworks & KPIs', perm: 'dataset:read' },
   { key: 'targets', label: 'Targets', perm: 'dataset:read' },
   { key: 'approvals', label: 'Approval History', perm: 'audit:read' },
-  { key: 'factors', label: 'Factors', perm: 'dataset:read' },
+  { key: 'factors', label: 'Factors Directory', perm: 'dataset:read' },
+  { key: 'units', label: 'Units', perm: 'dataset:read' },
   { key: 'directory', label: 'Directory / API', perm: 'integration:manage' },
   { key: 'audit', label: 'Audit Logs', perm: 'audit:read' },
 ]
@@ -55,10 +58,12 @@ export default function AdminConsole() {
             ))}
           </div>
           {tab === 'users' && <UserDirectoryTab canManage={canUsers} toast={toast.push} />}
-          {tab === 'roles' && <RoleAssignmentTab canManage={canUsers} toast={toast.push} />}
+          {tab === 'roles' && <RoleAssignmentTab canManage={canUsers} canManageDomains={hasPermission('admin:manage')} toast={toast.push} />}
+          {tab === 'kpis' && <KpiCatalogueTab canManage={hasPermission('admin:manage')} toast={toast.push} />}
           {tab === 'targets' && <TargetsTab canManage={hasPermission('admin:manage')} toast={toast.push} />}
           {tab === 'approvals' && <ApprovalHistoryTab />}
-          {tab === 'factors' && <FactorsTab toast={toast.push} />}
+          {tab === 'factors' && <FactorsTab canManage={hasPermission('admin:manage')} toast={toast.push} />}
+          {tab === 'units' && <UnitsTab canManage={hasPermission('admin:manage')} toast={toast.push} />}
           {tab === 'directory' && <IntegrationsTab toast={toast.push} />}
           {tab === 'audit' && <AuditTrail />}
         </>

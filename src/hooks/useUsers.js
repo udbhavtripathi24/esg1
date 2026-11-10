@@ -4,10 +4,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getUsers, createUser, updateUser, deactivateUser, resetUserPassword } from '../api/users.js'
 
-export function useUsers(params = {}) {
+export function useUsers(params = {}, { enabled = true } = {}) {
   return useQuery({
     queryKey: ['users', params],
     queryFn: () => getUsers(params),
+    enabled,
   })
 }
 

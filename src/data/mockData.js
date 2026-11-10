@@ -385,6 +385,8 @@ export const pricingTiers = [
 
 export const statusTint = {
   Approved: 'bg-status-approved/10 text-status-approved',
+  'Waiting for review': 'bg-status-review/10 text-status-review',
+  Draft: 'bg-ink-100 text-ink-500',
   Pending: 'bg-status-pending/10 text-status-pending',
   'Under Review': 'bg-status-review/10 text-status-review',
   'Changes Requested': 'bg-status-pending/10 text-status-pending',

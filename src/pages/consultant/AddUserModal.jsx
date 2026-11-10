@@ -1,7 +1,17 @@
 import { useState } from 'react'
-import { UserPlus, UploadCloud, X } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { UserPlus, X } from 'lucide-react'
 import { Button, Field, Input, Select } from '../../components/ui.jsx'
-import { roleOptions } from '../../data/mockData'
+import { getAuthConfig } from '../../api/auth.js'
+import { useRoles } from '../../hooks/useAssignments.js'
+
+/** A strong random password, never shown: used when the person sets their own from the e-mailed invitation. */
+function hiddenPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'
+  const bytes = new Uint32Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('')
+}
 
 const DEPARTMENTS = ['ESG Advisory', 'Frameworks', 'Client Success']
 
@@ -16,6 +26,13 @@ export default function AddUserModal({
   const [department, setDepartment] = useState('')
   const [role, setRole] = useState('Consultant')
   const [errors, setErrors] = useState({})
+  const roles = useRoles()
+  const roleCodes = (roles.data || []).filter((r) => r.scope !== 'client').map((r) => r.code)
+  const config = useQuery({ queryKey: ['auth-config'], queryFn: getAuthConfig, staleTime: 5 * 60_000 }).data
+  const emailOn = config?.email_enabled === true
+  const [invite, setInvite] = useState(true)
+  const minLength = config?.min_password_length || 10
+  const askPassword = requirePassword && !(emailOn && invite)
 
   function validate() {
     const e = {}
@@ -26,7 +43,7 @@ export default function AddUserModal({
     // Only User Directory's call site (requirePassword=true) requires this —
     // Role Assignment's existing flow is unaffected since it never sets
     // requirePassword, so this branch never runs for it.
-    if (requirePassword && !password.trim()) e.password = true
+    if (askPassword && password.length < minLength) e.password = true
     return e
   }
 
@@ -42,7 +59,8 @@ export default function AddUserModal({
       role,
     }
     if (requirePassword) {
-      payload.password = password
+      payload.password = askPassword ? password : hiddenPassword()
+      payload.send_invite = emailOn && invite
     }
     try {
       // await on a plain synchronous function (Role Assignment's existing
@@ -108,15 +126,23 @@ export default function AddUserModal({
             />
           </Field>
 
-          {requirePassword && (
+          {requirePassword && emailOn && (
+            <label className="flex items-center gap-2 text-sm text-ink-700">
+              <input type="checkbox" className="accent-brand-green" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
+              E-mail an invitation (they choose their own password)
+            </label>
+          )}
+          {askPassword && (
             <Field label="Initial Password" required>
               <Input
                 type="password"
-                placeholder="Set an initial password"
+                autoComplete="new-password"
+                placeholder={`At least ${minLength} characters`}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className={errors.password ? '!border-status-pending' : ''}
               />
+              {errors.password && <p className="text-xs text-status-pending mt-1">Use at least {minLength} characters.</p>}
             </Field>
           )}
 
@@ -134,7 +160,7 @@ export default function AddUserModal({
           <div>
             <label className="block text-sm text-ink-700 mb-1.5">Role</label>
             <div className="grid grid-cols-2 gap-3">
-              {roleOptions.map((r) => (
+              {roleCodes.map((r) => (
                 <button
                   key={r}
                   type="button"
@@ -149,20 +175,6 @@ export default function AddUserModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-ink-300">
-            <div className="flex-1 h-px bg-surface-border" />
-            or
-            <div className="flex-1 h-px bg-surface-border" />
-          </div>
-
-          <div>
-            <label className="block text-sm text-ink-700 mb-1.5">Import Users</label>
-            <div className="border border-dashed border-surface-border rounded-lg py-8 flex flex-col items-center text-center">
-              <UploadCloud size={20} className="text-ink-300 mb-2" />
-              <p className="text-sm text-ink-500">Drop your file here, or browse</p>
-              <p className="text-xs text-ink-300 mt-1">Supports CSV and Excel (.xlsx) files</p>
-            </div>
-          </div>
         </div>
 
         <div className="flex justify-end gap-3 p-6 border-t border-surface-border">

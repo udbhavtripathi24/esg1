@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { AlertTriangle, CheckCircle2, Download, EyeOff, Info, Loader2, Paperclip } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, EyeOff, Info, Loader2 } from 'lucide-react'
 import { Button } from '../ui.jsx'
 import LoadingState from '../LoadingState.jsx'
 import ErrorState from '../ErrorState.jsx'
 import { useResults } from '../../hooks/useSurveys.js'
-import { exportResults, fileDownload } from '../../api/surveys.js'
-import { openSignedFile, saveBlob } from './util.js'
+import { exportResults } from '../../api/surveys.js'
+import { saveBlob } from './util.js'
+import FileLink from './FileLink.jsx'
 import { TYPE_BY_KEY, errText, fmtDate } from './logic.js'
 
 // Chart colours: one hue (brand green) for magnitude; a blue ↔ grey ↔ red
@@ -387,17 +388,12 @@ function TextList({ items, title, showAll, onAll, truncated, anonymous }) {
 
 function FileList({ q, survey }) {
   const [err, setErr] = useState(null)
-  const open = async (f) => {
-    setErr(null)
-    try { const r = await fileDownload(survey.id, f.id); openSignedFile(r.url, r.filename || f.filename) } catch (e) { setErr(errText(e, 'Could not open the file')) }
-  }
   return (
     <div>
       <ul className="space-y-1">
         {q.files.map((f) => (
-          <li key={f.id} className="flex items-center gap-2 text-[11px]">
-            <Paperclip size={12} className="text-ink-300" />
-            <button type="button" className="text-brand-greenDark hover:underline truncate" onClick={() => open(f)}>{f.filename}</button>
+          <li key={f.id} className="flex items-center gap-2 text-[11px] min-w-0">
+            <FileLink surveyId={survey.id} file={f} onError={setErr} />
             {f.respondent && <span className="text-[10px] text-ink-500 truncate">— {f.respondent}</span>}
           </li>
         ))}

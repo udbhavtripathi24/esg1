@@ -6,10 +6,11 @@ import { useAdminUsers, useSetUserRole } from '../../hooks/useAdmin.js'
 import { inputCls } from '../surveys/util.js'
 import { Initials, Pager, RolePill, TableShell } from './parts.jsx'
 import { td, th } from './util.js'
+import DomainAssignmentPanel from './DomainAssignmentPanel.jsx'
 
 const PAGE = 15
 
-export default function RoleAssignmentTab({ companyId, canManage, toast }) {
+function RolesPanel({ companyId, canManage, toast }) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [draft, setDraft] = useState({})
@@ -99,6 +100,23 @@ export default function RoleAssignmentTab({ companyId, canManage, toast }) {
         </table>
       </TableShell>
       <Pager page={d.page} pageSize={d.page_size} total={d.total} onPage={setPage} />
+    </div>
+  )
+}
+
+/** Role Assignment: each person's role, and who uploads / reviews each KPI domain. */
+export default function RoleAssignmentTab({ companyId, canManage, canManageDomains, toast }) {
+  const [view, setView] = useState('domains')
+  return (
+    <div className="space-y-4">
+      <div className="inline-flex rounded-md border border-surface-border p-0.5 bg-surface-muted/50" role="tablist">
+        {[['domains', 'KPI domains'], ['people', 'People & roles']].map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
+            className={`px-3 py-1.5 text-[11px] rounded ${view === k ? 'bg-white shadow-sm text-ink-900 font-medium' : 'text-ink-500'}`}>{l}</button>
+        ))}
+      </div>
+      {view === 'domains' ? <DomainAssignmentPanel canManage={canManageDomains} toast={toast} />
+        : <RolesPanel companyId={companyId} canManage={canManage} toast={toast} />}
     </div>
   )
 }

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Paperclip, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import LoadingState from '../LoadingState.jsx'
 import ErrorState from '../ErrorState.jsx'
 import { useResponse, useResponses } from '../../hooks/useSurveys.js'
-import { fileDownload } from '../../api/surveys.js'
 import { Drawer } from './parts.jsx'
-import { inputCls, openSignedFile } from './util.js'
+import { inputCls } from './util.js'
+import FileLink from './FileLink.jsx'
 import { errText, fmtDate } from './logic.js'
 
 const VIA = { user: 'Platform', email: 'Personal link', public: 'Public link' }
@@ -73,10 +73,6 @@ export default function ResponsesPanel({ survey }) {
 function ResponseDrawer({ survey, id, onClose }) {
   const r = useResponse(survey.id, id)
   const [err, setErr] = useState(null)
-  const openFile = async (fid) => {
-    setErr(null)
-    try { const x = await fileDownload(survey.id, fid); openSignedFile(x.url, x.filename) } catch (e) { setErr(errText(e, 'Could not open the file')) }
-  }
   return (
     <Drawer title={r.data?.respondent || 'Response'} onClose={onClose}>
       {r.isLoading ? <LoadingState label="Loading…" /> : r.isError ? <ErrorState message={errText(r.error, 'Could not load the response.')} /> : (
@@ -108,7 +104,7 @@ function ResponseDrawer({ survey, id, onClose }) {
                           <ul className="space-y-0.5">{qq.rows.map((row) => <li key={row.label} className="flex justify-between gap-3"><span className="text-ink-700">{row.label}</span><span>{row.value || '—'}</span></li>)}</ul>
                         ) : qq.files ? (
                           qq.files.length ? qq.files.map((f) => (
-                            <button key={f.id} type="button" className="flex items-center gap-1 text-brand-greenDark hover:underline" onClick={() => openFile(f.id)}><Paperclip size={11} />{f.filename}</button>
+                            <div key={f.id} className="text-[11px]"><FileLink surveyId={survey.id} file={f} onError={setErr} /></div>
                           )) : <span className="text-ink-300">No file</span>
                         ) : qq.value === null || qq.value === undefined ? <span className="text-ink-300">Not answered</span> : withUnit(survey, qq)}
                         {qq.score && !qq.score.na && <span className="ml-2 text-[9px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">{qq.score.points}/{qq.score.max} pts</span>}

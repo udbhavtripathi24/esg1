@@ -1,11 +1,12 @@
 import { Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, UploadCloud, ListChecks, BarChart3, LineChart,
-  FileText, ShieldCheck, ClipboardList, UserCog, Settings, Leaf,
+  FileText, ShieldCheck, ClipboardList, UserCog, Settings,
 } from 'lucide-react'
 import Sidebar from './Sidebar.jsx'
 import Topbar from './Topbar.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useCompanies } from '../hooks/useCompanies.js'
 
 const navItems = [
   { to: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -14,7 +15,6 @@ const navItems = [
   { to: '/client/benchmarking', label: 'Benchmarking', icon: BarChart3 },
   { to: '/client/analytics', label: 'Analytics', icon: LineChart },
   { to: '/client/reporting', label: 'Reporting', icon: FileText },
-  { to: '/client/esg-demo-dashboard', label: 'ESG Dashboard (Demo)', icon: Leaf },
   { to: '/client/assurance', label: 'Assurance', icon: ShieldCheck },
   { to: '/client/surveys', label: 'Surveys & Assessments', icon: ClipboardList },
 ]
@@ -28,11 +28,14 @@ export default function ClientLayout() {
   const { user, logout, hasAnyPermission } = useAuth()
   // Admin Console only for people who can use one of its tabs
   const bottom = bottomItems.filter((i) => !i.anyOf || hasAnyPermission(...i.anyOf))
+  // A client user sees exactly one company: their own
+  const companies = useCompanies({ page: 1, page_size: 1 })
+  const companyName = companies.data?.items?.find((c) => c.id === user?.company_id)?.name
 
   return (
     <div className="h-screen flex flex-col bg-surface-muted">
       <Topbar 
-        clientName={user?.company_id ? `Company ${user.company_id}` : null} 
+        clientName={companyName || null}
         user={user} 
         logout={logout}
         settingsPath="/client/settings" 

@@ -106,6 +106,26 @@ export function AuthProvider({ children }) {
     [applySession]
   )
 
+  /** Start a session from a login-shaped payload (e.g. after setting a password from an e-mailed link). */
+  const startSession = useCallback(
+    (data) => {
+      localStorage.setItem(TOKEN_STORAGE_KEY, data.access_token)
+      applySession(data.user, data.access_token)
+      return data.user
+    },
+    [applySession]
+  )
+
+  /** Swap in a fresh token for the same user (after changing the password, older tokens stop working). */
+  const replaceToken = useCallback((newToken) => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, newToken)
+    setToken(newToken)
+    setAuthToken(newToken)
+  }, [])
+
+  /** Merge changed fields into the signed-in user (e.g. preferences). */
+  const updateUser = useCallback((patch) => setUser((u) => (u ? { ...u, ...patch } : u)), [])
+
   const logout = useCallback(() => {
     // No backend logout endpoint exists — this is purely local session
     // clearing, as specified. The now-invalid token simply expires
@@ -136,6 +156,9 @@ export function AuthProvider({ children }) {
     isLoading,
     login,
     logout,
+    startSession,
+    replaceToken,
+    updateUser,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
@@ -144,6 +167,8 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// The hook lives next to its provider on purpose; fast refresh simply reloads this file.
+// eslint-disable-next-line react/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')

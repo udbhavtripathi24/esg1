@@ -15,12 +15,15 @@ const AREAS = [
   ['', 'All activity'], ['user.', 'Users & roles'], ['dataset*', 'Data uploads'], ['file.', 'Files'],
   ['brsr.', 'BRSR'], ['evidence.', 'Evidence'], ['report.', 'Reports'], ['assurance.', 'Assurance'],
   ['survey.', 'Surveys'], ['target.', 'Targets'], ['integration.', 'Integrations'],
+  ['factor.', 'Factors'], ['domain.', 'KPI domains'], ['kpi.', 'KPI selection'],
 ]
 const LABELS = {
   'user.created': 'Added a user', 'user.updated': 'Edited a user', 'user.removed': 'Removed a user',
   'user.role_changed': 'Changed a role', 'user.role_granted': 'Granted a role', 'user.role_removed': 'Removed a role',
   'user.activated': 'Reactivated a user', 'user.deactivated': 'Deactivated a user', 'user.bulk_imported': 'Imported users',
   'user.password_reset_by_admin': 'Reset a password', 'user.password_changed': 'Changed own password',
+  'user.locked': 'Account locked after failed sign-ins', 'user.password_reset_requested': 'Asked for a password reset e-mail',
+  'user.password_reset': 'Set a new password from an e-mailed link', 'user.invite_accepted': 'Accepted the invitation and set a password',
   'dataset.created': 'Created a dataset', 'dataset_version.created': 'Started a new version', 'dataset_version.submitted': 'Submitted data for review',
   'file.uploaded': 'Uploaded a file', 'file.downloaded': 'Downloaded a file',
   'brsr.response_set.created': 'Started a BRSR', 'brsr.answers.saved': 'Saved BRSR answers', 'brsr.section.submitted': 'Submitted a BRSR section',
@@ -36,6 +39,9 @@ const LABELS = {
   'survey.saved_as_template': 'Saved a survey template', 'survey.file_downloaded': 'Downloaded a survey file',
   'evidence.uploaded': 'Uploaded evidence', 'evidence.downloaded': 'Downloaded evidence', 'evidence.withdrawn': 'Withdrew evidence',
   'report.published': 'Published a report', 'assurance.signed': 'Signed the assurance opinion',
+  'factor.changed': 'Changed an emission factor', 'domain.assignment_changed': 'Changed who uploads / reviews a KPI domain',
+  'company.frameworks_changed': 'Changed the reporting frameworks', 'kpi.selection_changed': 'Changed which KPIs are tracked',
+  'survey.file_opened': 'Opened a survey file',
 }
 
 function label(action) {
@@ -46,12 +52,21 @@ function label(action) {
 function detail(l) {
   const c = l.changes || {}
   const bits = []
+  if (l.action === 'factor.changed') return `${c.label}: ${c.from} → ${c.to} ${c.unit || ''}${c.note ? ` (${c.note})` : ''}`
+  if (l.action === 'domain.assignment_changed') {
+    return `${c.domain.replace('dept:', '')} — uploads: ${(c.uploaders || []).join(', ') || 'anyone'}; reviews: ${(c.reviewers || []).join(', ') || 'anyone'}`
+  }
+  if (l.action === 'company.frameworks_changed') return `${[].concat(c.from).join(' + ')} → ${[].concat(c.to).join(' + ')}`
+  if (l.action === 'kpi.selection_changed') return `${c.count} KPI${c.count === 1 ? '' : 's'} ${c.enabled ? 'tracked' : 'no longer tracked'}`
   if (c.email) bits.push(c.email)
   if (c.role) bits.push(String(c.role).replace('Client ', ''))
   if (c.from && c.to) bits.push(`${[].concat(c.from).map((r) => String(r).replace('Client ', '')).join(', ') || 'no role'} → ${String(c.to).replace('Client ', '')}`)
   if (c.section) bits.push(`Section ${c.section}`)
   if (c.title) bits.push(c.title)
   if (c.filename) bits.push(c.filename)
+  if (c.minutes) bits.push(`locked for ${c.minutes} minutes`)
+  if (c.invited) bits.push('invitation e-mailed')
+  if (c.emailed) bits.push(`${c.emailed} e-mailed`)
   if (c.count !== undefined) bits.push(`${c.count} item${c.count === 1 ? '' : 's'}`)
   if (c.metric && !c.title) bits.push(String(c.metric).replace(/_/g, ' '))
   if (c.type) bits.push(c.type)

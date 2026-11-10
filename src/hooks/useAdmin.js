@@ -31,7 +31,8 @@ export const useUpdateUser = (companyId) => useUserMutation(({ id, body }) => ap
 export const useSetUserRole = (companyId) => useUserMutation(({ id, role }) => api.setUserRole(id, role, companyId))
 export const useSetUserStatus = (companyId) => useUserMutation(({ id, active }) => api.setUserStatus(id, active, companyId))
 export const useResetPassword = (companyId) => useUserMutation((id) => api.resetUserPassword(id, companyId))
-export const useImportUsers = (companyId) => useUserMutation(({ file, dryRun }) => api.importUsers(file, dryRun, companyId))
+export const useImportUsers = (companyId) =>
+  useUserMutation(({ file, dryRun, sendInvites }) => api.importUsers(file, dryRun, companyId, sendInvites))
 
 export function useTargets(fy, companyId, { enabled = true } = {}) {
   return useQuery({

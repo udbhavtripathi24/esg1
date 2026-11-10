@@ -12,15 +12,29 @@
 import { BASE_URL, parseResponse, apiClient } from './client.js'
 
 /**
- * @param {string} currentPassword
- * @param {string} newPassword
- * @returns {Promise<void>} resolves with no content on success (204)
- * @throws {ApiError} 403 if currentPassword is wrong, 422 if newPassword
- *   is too short, 401 if not authenticated
+ * Change your own password. Every other session is signed out; the response
+ * carries a fresh token for this one (AuthContext.replaceToken).
+ * @returns {Promise<{access_token: string}>}
+ * @throws {ApiError} 403 wrong current password, 422 weak_password / same_password
  */
 export function changeOwnPassword(currentPassword, newPassword) {
   return apiClient.post('/auth/me/change-password', { current_password: currentPassword, new_password: newPassword })
 }
+
+/** Public: whether e-mail (and so "Forgot password") is available, and the password rules. */
+export const getAuthConfig = () => apiClient.get('/auth/config')
+
+/** Always resolves the same way for known and unknown addresses. 429 when asked too often. */
+export const forgotPassword = (email) => apiClient.post('/auth/forgot-password', { email })
+
+/** @returns {Promise<{valid: boolean, purpose?: 'reset'|'invite', email?: string, name?: string}>} */
+export const checkResetLink = (token) => apiClient.get('/auth/reset-password/check', { params: { token } })
+
+/** Sets the password from a one-time link and signs in: same shape as login(). */
+export const resetPassword = (token, newPassword) =>
+  apiClient.post('/auth/reset-password', { token, new_password: newPassword })
+
+export const updatePreferences = (body) => apiClient.patch('/auth/me/preferences', body)
 
 /**
  * @param {string} email

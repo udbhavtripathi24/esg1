@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { UserPlus, X, Copy, Check, AlertTriangle, KeyRound } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { UserPlus, X, Copy, Check, AlertTriangle, KeyRound, MailCheck } from 'lucide-react'
+import { getAuthConfig } from '../../api/auth.js'
 import { Button, Field, Input, Select } from '../../components/ui.jsx'
 import { getUsers } from '../../api/users.js'
 import { useResetUserPassword } from '../../hooks/useUsers.js'
@@ -43,6 +45,8 @@ export default function CreateClientUserModal({ companyId, companyName, onClose,
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState(CLIENT_ROLES[0])
+  const emailOn = useQuery({ queryKey: ['auth-config'], queryFn: getAuthConfig, staleTime: 5 * 60_000 }).data?.email_enabled === true
+  const [invited, setInvited] = useState(false)
   const [errors, setErrors] = useState({})
   const [generatedPassword, setGeneratedPassword] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -72,9 +76,11 @@ export default function CreateClientUserModal({ companyId, companyName, onClose,
       role,
       role_code: role,
       password,
+      send_invite: emailOn,
     }
     try {
       await onCreate(payload)
+      setInvited(emailOn)
       setWasReset(false)
       setGeneratedPassword(password)  // only shown after real, confirmed success
     } catch (err) {
@@ -99,6 +105,7 @@ export default function CreateClientUserModal({ companyId, companyName, onClose,
     try {
       await resetPasswordMutation.mutateAsync({ id: existingUserId, newPassword: password })
       setWasReset(true)
+      setInvited(false)
       setGeneratedPassword(password)
     } catch {
       // resetPasswordMutation.error is rendered below
@@ -131,13 +138,23 @@ export default function CreateClientUserModal({ companyId, companyName, onClose,
 
         {generatedPassword ? (
           <div className="p-6 space-y-4">
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5">
-              <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
-              <p className="text-[11px] text-amber-800">
-                This password is shown only once and cannot be retrieved again. Copy it now and share it with the
-                client through a secure channel — this system does not send it by email.
-              </p>
-            </div>
+            {invited ? (
+              <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2.5">
+                <MailCheck size={14} className="text-emerald-600 mt-0.5 shrink-0" />
+                <p className="text-[11px] text-emerald-900">
+                  We e-mailed an invitation with a link to choose a password (valid for 3 days). The temporary password
+                  below also works, as a fallback — it is shown only now.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5">
+                <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-[11px] text-amber-800">
+                  This password is shown only once and cannot be retrieved again. Copy it now and share it with the
+                  client through a secure channel — passwords are never sent by e-mail.
+                </p>
+              </div>
+            )}
             <div>
               <label className="text-[10px] text-ink-500 mb-1 block">Email</label>
               <p className="text-sm text-ink-900 font-medium">{email.trim()}</p>
@@ -200,7 +217,9 @@ export default function CreateClientUserModal({ companyId, companyName, onClose,
                 </Select>
               </div>
               <p className="text-[10px] text-ink-400">
-                A secure temporary password will be generated automatically and shown once you create this user.
+                {emailOn
+                  ? 'They get an e-mail invitation to choose their password. A temporary password is also shown once, as a fallback.'
+                  : 'A secure temporary password will be generated automatically and shown once you create this user.'}
               </p>
             </div>
             <div className="flex justify-end gap-3 p-6 border-t border-surface-border">

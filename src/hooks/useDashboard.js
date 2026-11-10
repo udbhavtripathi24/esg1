@@ -7,7 +7,7 @@
  * discipline.
  */
 import { useQuery } from '@tanstack/react-query'
-import { getConsultantDashboard, getClientDashboard, getClientDashboardTasks } from '../api/dashboard.js'
+import { getConsultantDashboard, getClientDashboard, getClientDashboardTasks, getEsgOverview } from '../api/dashboard.js'
 
 export function useConsultantDashboard() {
   return useQuery({
@@ -29,5 +29,13 @@ export function useClientDashboardTasks(periodStart, periodEnd) {
     queryKey: ['dashboard', 'client-tasks', periodStart, periodEnd],
     queryFn: () => getClientDashboardTasks(periodStart, periodEnd),
     enabled: !!(periodStart && periodEnd),
+  })
+}
+
+export function useEsgOverview(fy) {
+  return useQuery({
+    queryKey: ['dashboard', 'esg', fy || 'default'],
+    queryFn: () => getEsgOverview(fy),
+    placeholderData: (prev) => prev,
   })
 }

@@ -38,12 +38,15 @@ export const setPublicLink = (id, enabled, regenerate = false) =>
 export const getAudience = (id) => apiClient.get(`/surveys/${id}/audience`)
 export const addInvites = (id, body) => apiClient.post(`/surveys/${id}/invites`, body)
 export const removeInvite = (id, inviteId) => apiClient.delete(`/surveys/${id}/invites/${inviteId}`)
-export const renewLinks = (id, inviteIds) => apiClient.post(`/surveys/${id}/links`, { invite_ids: inviteIds ?? null })
+export const renewLinks = (id, inviteIds, sendEmail = false) =>
+  apiClient.post(`/surveys/${id}/links`, { invite_ids: inviteIds ?? null, send_email: sendEmail })
 export const remind = (id) => apiClient.post(`/surveys/${id}/remind`)
 export const getResults = (id, group) => apiClient.get(`/surveys/${id}/results`, { params: group ? { group } : {} })
 export const listResponses = (id) => apiClient.get(`/surveys/${id}/responses`)
 export const getResponse = (id, responseId) => apiClient.get(`/surveys/${id}/responses/${responseId}`)
-export const fileDownload = (id, fileId) => apiClient.get(`/surveys/${id}/files/${fileId}/download`)
+/** A signed link to an uploaded file. ``inline`` asks to open a PDF or image in the browser. */
+export const fileDownload = (id, fileId, { inline = false } = {}) =>
+  apiClient.get(`/surveys/${id}/files/${fileId}/download`, { params: inline ? { inline: true } : {} })
 
 export async function exportResults(id, title) {
   const res = await fetch(`${BASE_URL}/surveys/${id}/export`, {

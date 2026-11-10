@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell, Building2, Copy, Download, EyeOff, Globe, Link2, Mail, RefreshCw, Search, Trash2, UserPlus, Users,
 } from 'lucide-react'
@@ -10,6 +10,7 @@ import {
   useAddInvites, useAudience, usePublicLink, useRemind, useRemoveInvite, useRenewLinks, useUpdateSurvey,
 } from '../../hooks/useSurveys.js'
 import { surveyLink } from '../../api/surveys.js'
+import { getAuthConfig } from '../../api/auth.js'
 import { Modal, Toggle } from './parts.jsx'
 import { copyText, csvCell, inputCls, saveBlob } from './util.js'
 import { errText, fmtDate } from './logic.js'
@@ -20,8 +21,11 @@ const STATUS = {
   submitted: { label: 'Submitted', cls: 'bg-brand-green/15 text-brand-greenDark' },
 }
 
+const useEmailOn = () => useQuery({ queryKey: ['auth-config'], queryFn: getAuthConfig, staleTime: 5 * 60_000 }).data?.email_enabled === true
+
 export default function SharePanel({ survey, toast }) {
   const aud = useAudience(survey.id)
+  const emailOn = useEmailOn()
   const [modal, setModal] = useState(null) // 'colleagues' | 'emails' | {links}
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -46,10 +50,21 @@ export default function SharePanel({ survey, toast }) {
   const doRemind = async () => {
     try {
       const r = await remind.mutateAsync()
-      toast(r.reminded
-        ? `Reminder sent to ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'} in the platform.${r.email_not_submitted ? ` ${r.email_not_submitted} invited by e-mail still need their link re-sent.` : ''}`
-        : 'No one in the platform is waiting to answer.')
+      const parts = []
+      if (r.reminded) parts.push(`${r.reminded} ${r.reminded === 1 ? 'person' : 'people'} in the platform`)
+      if (r.emailed) parts.push(`${r.emailed} by e-mail, with a fresh link`)
+      toast(parts.length
+        ? `Reminder sent to ${parts.join(' and ')}.${r.email_not_submitted ? ` ${r.email_not_submitted} invited by e-mail still need their link re-sent.` : ''}`
+        : 'No one is waiting to answer.')
     } catch (e) { toast(errText(e, 'Could not send reminders')) }
+  }
+
+  const doResend = async (inv) => {
+    if (!window.confirm(`E-mail ${inv.email} a new personal link?\n\nThe previous link stops working. Answers they have already saved are kept.`)) return
+    try {
+      await renew.mutateAsync({ inviteIds: [inv.id], sendEmail: true })
+      toast(survey.status === 'draft' ? 'New link ready — it is e-mailed when you publish' : `New link e-mailed to ${inv.email}`)
+    } catch (e) { toast(errText(e, 'Could not send a new link')) }
   }
 
   const doRenew = async (ids, label) => {
@@ -69,7 +84,7 @@ export default function SharePanel({ survey, toast }) {
         <Stat label="Not started" value={Math.max(0, counts.eligible - counts.submitted - counts.started)} />
       </div>
 
-      {survey.status === 'draft' && <p className="text-[11px] text-ink-500 bg-surface-muted rounded-md px-3 py-2">People you invite now are notified when you publish. Links work from the moment the survey opens.</p>}
+      {survey.status === 'draft' && <p className="text-[11px] text-ink-500 bg-surface-muted rounded-md px-3 py-2">People you invite now are notified{emailOn ? ' and e-mailed' : ''} when you publish. Links work from the moment the survey opens.</p>}
       {survey.anonymous && <p className="flex items-center gap-1.5 text-[11px] text-ink-500"><EyeOff size={12} /> Anonymous survey: you can see who has answered, never what they answered.</p>}
 
       <div className="grid lg:grid-cols-3 gap-4">
@@ -77,7 +92,9 @@ export default function SharePanel({ survey, toast }) {
           <EveryoneToggle survey={survey} disabled={readOnly} toast={toast} />
           <Button size="sm" variant="subtle" className="mt-3" disabled={readOnly || closed} onClick={() => setModal('colleagues')}><UserPlus size={13} /> Invite colleagues</Button>
         </AudienceCard>
-        <AudienceCard icon={Mail} title="Suppliers and other people" text="Anyone without a login gets a personal link — they can save and come back to it. Send the links from your own e-mail.">
+        <AudienceCard icon={Mail} title="Suppliers and other people" text={emailOn
+          ? 'Anyone without a login gets a personal link by e-mail — they can save and come back to it.'
+          : 'Anyone without a login gets a personal link — they can save and come back to it. Send the links from your own e-mail.'}>
           <div className="flex flex-wrap gap-2 mt-3">
             <Button size="sm" variant="subtle" disabled={readOnly || closed} onClick={() => setModal('emails')}><Mail size={13} /> Add people</Button>
             {emailOpen.length > 0 && (
@@ -104,7 +121,9 @@ export default function SharePanel({ survey, toast }) {
             <input className={`${inputCls} !pl-6 !w-48`} placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <Button size="sm" variant="ghost" disabled={survey.status !== 'open' || remind.isPending} onClick={doRemind}
-            title={survey.status !== 'open' ? 'Reminders can be sent while the survey is open' : 'Notify everyone in the platform who hasn’t submitted'}>
+            title={survey.status !== 'open' ? 'Reminders can be sent while the survey is open'
+              : emailOn ? 'Remind everyone who hasn’t submitted: a notification in the platform, a fresh link by e-mail'
+                : 'Notify everyone in the platform who hasn’t submitted'}>
             <Bell size={13} /> Send reminder
           </Button>
         </div>
@@ -131,16 +150,22 @@ export default function SharePanel({ survey, toast }) {
                       {i.name && i.email && <span className="block text-[10px] text-ink-500">{i.email}</span>}
                     </td>
                     <td className="px-2 py-2 text-ink-700">{i.group || '—'}</td>
-                    <td className="px-2 py-2 text-ink-500">{i.channel === 'user' ? 'Platform' : 'Personal link'}</td>
+                    <td className="px-2 py-2 text-ink-500">{i.channel === 'user' ? 'Platform'
+                      : i.emailed_at ? `E-mailed ${fmtDate(i.emailed_at)}`
+                        : emailOn && survey.status === 'draft' ? 'E-mail on publish' : 'Personal link'}</td>
                     <td className="px-2 py-2"><span className={`px-2 py-0.5 rounded-full text-[10px] ${STATUS[i.status].cls}`}>{STATUS[i.status].label}</span></td>
                     <td className="px-2 py-2 text-ink-500">{fmtDate(i.invited_at)}</td>
                     <td className="px-2 py-2 text-ink-500">{i.last_reminded_at ? fmtDate(i.last_reminded_at) : '—'}</td>
                     <td className="px-4 py-2 text-right whitespace-nowrap">
-                      {i.channel === 'email' && i.status !== 'submitted' && !readOnly && (
+                      {i.channel === 'email' && i.status !== 'submitted' && !readOnly && (emailOn ? (
+                        <button type="button" className="text-[10px] text-brand-greenDark hover:underline mr-3" onClick={() => doResend(i)}>
+                          <RefreshCw size={10} className="inline mr-0.5" /> Re-send link
+                        </button>
+                      ) : (
                         <button type="button" className="text-[10px] text-brand-greenDark hover:underline mr-3" onClick={() => doRenew([i.id], `Create a new link for ${i.email}?`)}>
                           <RefreshCw size={10} className="inline mr-0.5" /> New link
                         </button>
-                      )}
+                      ))}
                       {i.status === 'pending' && !readOnly && (
                         <button type="button" className="text-ink-300 hover:text-status-pending" aria-label={`Remove ${i.name || i.email}`}
                           onClick={async () => { try { await remove.mutateAsync(i.id) } catch (e) { toast(errText(e, 'Could not remove')) } }}>
@@ -157,8 +182,10 @@ export default function SharePanel({ survey, toast }) {
       </div>
 
       {modal === 'colleagues' && <ColleaguesModal survey={survey} audience={aud.data} onClose={() => setModal(null)} toast={toast} />}
-      {modal === 'emails' && <EmailsModal survey={survey} onClose={() => setModal(null)} onLinks={(links) => setModal({ links })} toast={toast} />}
-      {modal?.links && <LinksModal survey={survey} links={modal.links} renewed={modal.renewed} onClose={() => setModal(null)} />}
+      {modal === 'emails' && <EmailsModal survey={survey} emailOn={emailOn} onClose={() => setModal(null)}
+        onLinks={(links, r) => setModal({ links, emailed: r?.emailed || 0, onPublish: r?.email_on_publish || 0 })} toast={toast} />}
+      {modal?.links && <LinksModal survey={survey} links={modal.links} renewed={modal.renewed} emailed={modal.emailed}
+        onPublish={modal.onPublish} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -290,7 +317,7 @@ function parseEmailLines(text) {
   return { ok, bad }
 }
 
-function EmailsModal({ survey, onClose, onLinks, toast }) {
+function EmailsModal({ survey, emailOn, onClose, onLinks, toast }) {
   const add = useAddInvites(survey.id)
   const [text, setText] = useState('')
   const [group, setGroup] = useState('')
@@ -298,14 +325,16 @@ function EmailsModal({ survey, onClose, onLinks, toast }) {
   const submit = async () => {
     try {
       const r = await add.mutateAsync({ emails: parsed.ok.map((x) => ({ ...x, group: x.group || group || null })) })
-      if (r.links.length) onLinks(r.links)
+      if (r.links.length) onLinks(r.links, r)
       else { toast(r.skipped ? 'Everyone listed was already invited' : 'No one added'); onClose() }
     } catch (e) { toast(errText(e, 'Could not add')) }
   }
   return (
-    <Modal title="Add people by e-mail" subtitle="Each person gets a personal link. The platform doesn’t send e-mail — you’ll copy the links or download them as a CSV."
+    <Modal title="Add people by e-mail" subtitle={emailOn
+      ? `Each person gets an e-mail with their personal link${survey.status === 'draft' ? ' when you publish' : ''}. You'll also see the links once, to copy if you prefer.`
+      : 'Each person gets a personal link. The platform doesn’t send e-mail — you’ll copy the links or download them as a CSV.'}
       onClose={onClose}
-      footer={<><Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button><Button size="sm" disabled={!parsed.ok.length || add.isPending} onClick={submit}>Create {parsed.ok.length || ''} link{parsed.ok.length === 1 ? '' : 's'}</Button></>}>
+      footer={<><Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button><Button size="sm" disabled={!parsed.ok.length || add.isPending} onClick={submit}>{emailOn ? `Invite ${parsed.ok.length || ''}` : `Create ${parsed.ok.length || ''} link${parsed.ok.length === 1 ? '' : 's'}`}</Button></>}>
       <textarea className={`${inputCls} font-mono`} rows={8} value={text} onChange={(e) => setText(e.target.value)} autoFocus
         placeholder={'One person per line: e-mail, name, group\nsales@supplier-one.com, Supplier One, Packaging\nops@supplier-two.com, Supplier Two, Logistics'} />
       <p className="text-[10px] text-ink-500 mt-1">You can paste columns straight from Excel. Name and group are optional; the group (e.g. supplier category or site) lets you compare results.</p>
@@ -323,7 +352,7 @@ function EmailsModal({ survey, onClose, onLinks, toast }) {
   )
 }
 
-function LinksModal({ survey, links, renewed, onClose }) {
+function LinksModal({ survey, links, renewed, emailed = 0, onPublish = 0, onClose }) {
   const [copied, setCopied] = useState(null)
   const rows = links.map((l) => ({ ...l, url: surveyLink(l.token) }))
   const csv = () => {
@@ -337,6 +366,8 @@ function LinksModal({ survey, links, renewed, onClose }) {
       subtitle="Keep these now: for security, links are shown only once. You can always create new ones from the invitations list."
       footer={<><Button size="sm" variant="ghost" onClick={() => copy('all', rows.map((r) => `${r.name ? `${r.name} <${r.email}>` : r.email}\t${r.url}`).join('\n'))}><Copy size={12} /> {copied === 'all' ? 'Copied' : 'Copy all'}</Button>
         <Button size="sm" onClick={csv}><Download size={12} /> Download CSV</Button></>}>
+      {emailed > 0 && <p className="text-[10px] text-emerald-800 bg-emerald-50 rounded px-2 py-1.5 mb-3">E-mailed to {emailed} {emailed === 1 ? 'person' : 'people'} just now. Copy a link only if someone tells you the e-mail didn’t arrive.</p>}
+      {onPublish > 0 && <p className="text-[10px] text-emerald-800 bg-emerald-50 rounded px-2 py-1.5 mb-3">These links are e-mailed automatically when you publish the survey.</p>}
       {survey.status === 'draft' && <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-3">The links start working when you publish the survey.</p>}
       <div className="max-h-80 overflow-y-auto border border-surface-border rounded-md divide-y divide-surface-border">
         {rows.map((r) => (

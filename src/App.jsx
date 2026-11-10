@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Landing from './pages/Landing.jsx'
 import Payment from './pages/Payment.jsx'
 import Login from './pages/auth/Login.jsx'
+import ForgotPassword from './pages/auth/ForgotPassword.jsx'
+import ResetPassword from './pages/auth/ResetPassword.jsx'
 import ConsultantLayout from './components/ConsultantLayout.jsx'
 import ClientLayout from './components/ClientLayout.jsx'
 import RequireAuth from './components/RequireAuth.jsx'
@@ -19,7 +21,6 @@ import ClientReviewCenter from './pages/client/ReviewCenter.jsx'
 import Analytics from './pages/client/Analytics.jsx'
 import Benchmarking from './pages/client/Benchmarking.jsx'
 import Reporting from './pages/client/Reporting.jsx'
-import EsgDemoDashboard from './pages/client/EsgDemoDashboard.jsx'
 import Assurance from './pages/client/Assurance.jsx'
 import Surveys from './pages/client/Surveys.jsx'
 import SurveyWorkspacePage from './components/surveys/SurveyWorkspace.jsx'
@@ -48,6 +49,8 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/payment" element={<Payment />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           {/* Answering by link: no login, no app chrome */}
           <Route path="/s/:token" element={<PublicSurveyPage />} />
 
@@ -87,7 +90,7 @@ function App() {
             <Route path="benchmarking" element={<Benchmarking />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="reporting" element={<Reporting />} />
-            <Route path="esg-demo-dashboard" element={<EsgDemoDashboard />} />
+            <Route path="esg-demo-dashboard" element={<Navigate to="/client/analytics?view=demo" replace />} />
             <Route path="assurance" element={<Assurance />} />
             <Route path="surveys" element={<Surveys />} />
             <Route path="surveys/respond/:surveyId" element={<RespondPage />} />

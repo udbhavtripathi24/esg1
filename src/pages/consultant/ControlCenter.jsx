@@ -12,8 +12,7 @@ import AssignRbacRoleModal from './AssignRbacRoleModal.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useCompanies, useUpdateCompany } from '../../hooks/useCompanies.js'
 import { useUsers, useCreateUser, useDeactivateUser, useUpdateUser } from '../../hooks/useUsers.js'
-import { useConsultantAssignments, useCreateConsultantAssignment, useUpdateConsultantAssignment, useAssignRole, useRemoveRole } from '../../hooks/useAssignments.js'
-import { roleOptions } from '../../data/mockData'
+import { useConsultantAssignments, useCreateConsultantAssignment, useUpdateConsultantAssignment, useAssignRole, useRemoveRole, useRoles } from '../../hooks/useAssignments.js'
 import AuditTrail from '../../components/admin/AuditTrail.jsx'
 
 // UI role display names map 1-to-1 to backend role_code (confirmed against
@@ -289,7 +288,8 @@ export default function ControlCenter() {
         role: formPayload.role,
         department: formPayload.department,
         password: formPayload.password,
-        role_code: ROLE_TO_ROLE_CODE[formPayload.role],
+        role_code: ROLE_TO_ROLE_CODE[formPayload.role] || formPayload.role,
+        send_invite: !!formPayload.send_invite,
       })
     } catch (err) {
       if (err.status === 422 && err.field === 'email') {
@@ -554,6 +554,8 @@ function UserDirectoryTab({
   users, search, setSearch, roleFilter, setRoleFilter, roleFilterOpen, setRoleFilterOpen, onAddUser,
   isLoading, isError, error, onRetry, canManageUsers, onDeactivate,
 }) {
+  const roles = useRoles()
+  const roleNames = (roles.data || []).filter((r) => r.scope !== 'client').map((r) => r.code)
   return (
     <div>
       <SearchBar
@@ -564,7 +566,7 @@ function UserDirectoryTab({
           <div className="flex items-center gap-3">
             <Dropdown
               label="Role"
-              options={['All roles', ...roleOptions.map((r) => (r === 'Admin' ? 'Administrator' : r))]}
+              options={['All roles', ...roleNames]}
               value={roleFilter}
               open={roleFilterOpen}
               setOpen={setRoleFilterOpen}
@@ -855,6 +857,33 @@ function ConfirmRemoveAssignmentDialog({ name, onCancel, onConfirm, isSubmitting
  * currently selected. Calls the exact same real PATCH /companies/{id}
  * endpoint already used for Approve/Reject -- CompanyUpdate already
  * supports a plan field, so no backend change was needed for this. */
+/** BRSR / GRI / SASB for the selected client (PATCH /companies/{id} {frameworks}). */
+function FrameworkSelector({ company, canManage }) {
+  const updateCompany = useUpdateCompany(company.id)
+  const current = company.frameworks?.length ? company.frameworks : ['BRSR']
+  const all = ['BRSR', 'GRI', 'SASB']
+  const toggle = (code) => {
+    const next = current.includes(code) ? current.filter((c) => c !== code) : all.filter((c) => c === code || current.includes(c))
+    if (next.length) updateCompany.mutate({ frameworks: next })
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {all.map((code) => {
+        const on = current.includes(code)
+        return (
+          <button key={code} type="button" disabled={!canManage || updateCompany.isPending || (on && current.length === 1)}
+            onClick={() => toggle(code)} aria-pressed={on}
+            title={on && current.length === 1 ? 'A client reports under at least one framework' : undefined}
+            className={`text-[10px] px-2.5 py-1 rounded-full border ${on ? 'border-brand-green bg-brand-green/10 text-brand-greenDark font-medium' : 'border-surface-border text-ink-500'} disabled:cursor-default`}>
+            {code}
+          </button>
+        )
+      })}
+      {updateCompany.isError && <span className="text-[10px] text-status-pending">{updateCompany.error?.message || 'Could not save'}</span>}
+    </div>
+  )
+}
+
 function PlanSelector({ company }) {
   const updateCompany = useUpdateCompany(company.id)
   return (
@@ -1046,7 +1075,7 @@ function ClientPoolTab({
               <p className="text-xs text-ink-300 mb-4">Not available yet — consultant assignment details are coming in a later phase.</p>
 
               <p className="text-xs text-ink-500 font-medium mb-2">Reporting Frameworks</p>
-              <p className="text-xs text-ink-300 mb-4">Not available yet — reporting frameworks are coming in a later phase.</p>
+              <div className="mb-4"><FrameworkSelector company={detail} canManage={canManageCompanies} /></div>
 
               <p className="text-xs text-ink-500 font-medium mb-2">Reporting Progress</p>
               <p className="text-xs text-ink-300">Not available yet — reporting progress is coming in a later phase.</p>

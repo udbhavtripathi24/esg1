@@ -18,6 +18,8 @@ import { useResponseSets, useResponseSet } from '../../hooks/useBrsr.js'
 import { downloadPreview } from '../../api/brsr.js'
 import StatusBadge from '../../components/brsr/StatusBadge.jsx'
 import { fyPeriod, sectionName } from '../../components/brsr/format.js'
+import GriReporting from '../../components/gri/GriReporting.jsx'
+import { useFrameworks } from '../../hooks/useKpis.js'
 
 /**
  * Reporting. Two report types, both real:
@@ -55,10 +57,11 @@ const STATUS_COLORS = {
   published: 'bg-brand-green/10 text-brand-green', failed: 'bg-red-100 text-red-600',
 }
 
-const TABS = ['BRSR', 'ESG Management Report']
-
 export default function Reporting() {
   const [tab, setTab] = useState('BRSR')
+  const frameworks = useFrameworks()
+  const on = frameworks.data?.frameworks || []
+  const TABS = ['BRSR', ...(on.includes('GRI') ? ['GRI'] : []), ...(on.includes('SASB') ? ['SASB'] : []), 'ESG Management Report']
   return (
     <div>
       <PageHeader title="Reporting" subtitle="Generate, review and publish your reports" />
@@ -71,7 +74,7 @@ export default function Reporting() {
           </button>
         ))}
       </div>
-      {tab === 'BRSR' ? <BrsrReporting /> : <EsgReporting />}
+      {tab === 'BRSR' ? <BrsrReporting /> : tab === 'GRI' ? <GriReporting /> : tab === 'SASB' ? <GriReporting fw="sasb" /> : <EsgReporting />}
     </div>
   )
 }

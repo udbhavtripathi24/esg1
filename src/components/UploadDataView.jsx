@@ -15,6 +15,9 @@ import {
 import { getDatasetVersions } from '../api/datasets.js'
 import { domainGuidance } from '../data/mockData'
 import BrsrWorkspace from './brsr/BrsrWorkspace.jsx'
+import GriWorkspace from './gri/GriWorkspace.jsx'
+import SasbWorkspace from './sasb/SasbWorkspace.jsx'
+import { useFrameworks } from '../hooks/useKpis.js'
 import DataSheetsTab from './datasheets/DataSheetsTab.jsx'
 import { useDataSheets } from '../hooks/useDatasheets.js'
 
@@ -54,8 +57,14 @@ function periodToDateRange(periodLabel) {
 }
 
 export default function UploadDataView() {
-  const { user } = useAuth()
+  const { user, hasPermission } = useAuth()
   const [tab, setTab] = useState('Data sheets')
+  const isDeloitte = user?.portal_type === 'deloitte'
+  // Clients see GRI only when their company reports under it; Deloitte picks the client inside the tab.
+  const frameworks = useFrameworks(null, { enabled: !!user && !isDeloitte })
+  const showGri = isDeloitte || (frameworks.data?.frameworks || []).includes('GRI')
+  const showSasb = isDeloitte || (frameworks.data?.frameworks || []).includes('SASB')
+  const tabs = ['Data sheets', 'BRSR', ...(showGri ? ['GRI'] : []), ...(showSasb ? ['SASB'] : []), 'Quantitative']
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState(null)
 
@@ -86,7 +95,8 @@ export default function UploadDataView() {
 
   // Resolve created_by -> user name via a Map over the already-fetched real
   // users list — no N+1 requests, same pattern as Role Assignment's picker.
-  const usersQuery = useUsers({ page: 1, page_size: 100 })
+  // Uploaders and reviewers may not list users (user:read); names then fall back to "—".
+  const usersQuery = useUsers({ page: 1, page_size: 100 }, { enabled: hasPermission('user:read') })
   const userNameById = useMemo(() => {
     const map = new Map()
     for (const u of usersQuery.data?.items || []) map.set(u.id, u.name)
@@ -116,7 +126,7 @@ export default function UploadDataView() {
       )}
 
       <div className="flex items-center gap-6 border-b border-surface-border mb-5">
-        {['Data sheets', 'BRSR', 'Quantitative'].map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -138,6 +148,8 @@ export default function UploadDataView() {
       {tab === 'BRSR' && (
         <BrsrWorkspace pushToast={pushToast} onOpenDataSheets={() => setTab('Data sheets')} />
       )}
+      {tab === 'GRI' && showGri && <GriWorkspace pushToast={pushToast} />}
+      {tab === 'SASB' && showSasb && <SasbWorkspace pushToast={pushToast} />}
 
       {(tab === 'Quantitative' || tab === 'Data sheets') && (
       <Card title="Uploaded Datasets" action={

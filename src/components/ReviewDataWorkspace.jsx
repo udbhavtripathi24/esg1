@@ -9,6 +9,8 @@ import ErrorState from './ErrorState.jsx'
 import { useDatasetVersions } from '../hooks/useDatasets.js'
 import { useReviews, useAssignReview, useDecideReview, useComments, useCreateComment } from '../hooks/useReviews.js'
 import { useKpiValidation, useDataPreview } from '../hooks/useKpiValues.js'
+import SheetPreview from './review/SheetPreview.jsx'
+import { DATASET_STATUS } from './datasetStatus.js'
 
 const TABS = [
   { key: 'Data Preview', icon: FileText },
@@ -160,7 +162,8 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
     }
   }
 
-  const title = `${dataset.reporting_period_start} to ${dataset.reporting_period_end} — Upload Type #${dataset.upload_type_id}`
+  const typeName = dataset.upload_type_name || `Upload type #${dataset.upload_type_id}`
+  const title = `${typeName} · ${dataset.reporting_period_start} to ${dataset.reporting_period_end}`
 
   const checklist = [
     { label: 'Dataset opened', done: true },
@@ -197,9 +200,9 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
             <p className="text-xs font-semibold text-ink-900 mb-4">Dataset Summary</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[10px]">
               <div><div className="text-[8px] text-ink-300">Company</div><div className="text-ink-900 font-medium">{companyName}</div></div>
-              <div><div className="text-[8px] text-ink-300">Upload Type</div><div className="text-ink-900 font-medium">#{dataset.upload_type_id}</div></div>
+              <div><div className="text-[8px] text-ink-300">Upload Type</div><div className="text-ink-900 font-medium">{typeName}</div></div>
               <div><div className="text-[8px] text-ink-300">Reporting Period</div><div className="text-ink-900 font-medium">{dataset.reporting_period_start} – {dataset.reporting_period_end}</div></div>
-              <div><div className="text-[8px] text-ink-300">Status</div><div className="text-ink-900 font-medium">{dataset.status}</div></div>
+              <div><div className="text-[8px] text-ink-300">Status</div><div className="text-ink-900 font-medium">{DATASET_STATUS[dataset.status] || dataset.status}</div></div>
             </div>
           </div>
 
@@ -230,6 +233,8 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
                     message={dataPreviewQuery.error?.message || 'Could not load the data preview.'}
                     onRetry={() => dataPreviewQuery.refetch()}
                   />
+                ) : dataPreviewQuery.data?.sheet ? (
+                  <SheetPreview data={dataPreviewQuery.data} />
                 ) : previewRows.length === 0 ? (
                   <div className="text-center py-10">
                     <FileText size={28} className="text-ink-200 mx-auto mb-3" />

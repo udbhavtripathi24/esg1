@@ -799,7 +799,7 @@ const DOMAIN_TABS = {
   ]},
 }
 
-export default function EsgDemoDashboard() {
+export default function EsgDemoDashboard({ embedded = false }) {
   const [location, setLocation] = useState('All')
   const [year, setYear] = useState(2026)
   const [month, setMonth] = useState('All')
@@ -823,7 +823,7 @@ export default function EsgDemoDashboard() {
 
   return (
     <div>
-      <PageHeader title="ESG Dashboard" subtitle="Environment · Social · Governance" />
+      {!embedded && <PageHeader title="ESG Dashboard" subtitle="Environment · Social · Governance" />}
 
       <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-5">
         <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />

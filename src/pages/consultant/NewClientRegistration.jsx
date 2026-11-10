@@ -18,8 +18,13 @@ const emptyForm = {
   country: '', state: '', city: '', postalCode: '', streetAddress: '',
   contactName: '', designation: '', officialEmail: '', phoneNumber: '',
   entities: [],
+  frameworks: ['BRSR'],
   confirmed: false,
 }
+
+const FRAMEWORK_OPTIONS = [
+  ['BRSR', 'BRSR (SEBI)'], ['GRI', 'GRI Standards'], ['SASB', 'SASB'],
+]
 
 export default function NewClientRegistration() {
   const navigate = useNavigate()
@@ -39,6 +44,7 @@ export default function NewClientRegistration() {
     if (step === 0) {
       if (!form.companyName.trim()) e.companyName = true
       if (!form.industry) e.industry = true
+      if (!form.frameworks.length) e.frameworks = true
     }
     if (step === 1) {
       if (!form.country.trim()) e.country = true
@@ -80,6 +86,7 @@ export default function NewClientRegistration() {
       sector: form.sector || undefined,
       structure: form.companyStructure || undefined,
       country: form.country || undefined,
+      frameworks: form.frameworks,
     }
 
     setSubmitError(null)
@@ -226,6 +233,26 @@ function CompanyDetailsStep({ form, update, errors }) {
               </button>
             ))}
           </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-sm text-ink-700 mb-1.5">Reporting frameworks<span className="text-status-pending">*</span></label>
+          <div className="grid grid-cols-3 gap-3">
+            {FRAMEWORK_OPTIONS.map(([code, label]) => {
+              const on = form.frameworks.includes(code)
+              return (
+                <button key={code} type="button" aria-pressed={on}
+                  onClick={() => update('frameworks', on ? form.frameworks.filter((f) => f !== code)
+                    : FRAMEWORK_OPTIONS.map(([c]) => c).filter((c) => c === code || form.frameworks.includes(c)))}
+                  className={`px-3 py-2.5 rounded-md border text-sm transition-colors flex items-center justify-between ${
+                    on ? 'border-brand-green bg-brand-green/5 text-brand-greenDark font-medium' : 'border-surface-border text-ink-500'}`}>
+                  {label}{on && <Check size={14} />}
+                </button>
+              )
+            })}
+          </div>
+          {errors.frameworks
+            ? <p className="text-xs text-status-pending mt-1">Choose at least one framework.</p>
+            : <p className="text-[11px] text-ink-300 mt-1">The client&apos;s administrator can change this later in Admin Console → Frameworks &amp; KPIs.</p>}
         </div>
         <Field label="Parent Company" optional>
           <Input value={form.parentCompany} onChange={(e) => update('parentCompany', e.target.value)} placeholder="e.g. ABC Holdings" />
@@ -376,6 +403,7 @@ function DeclarationStep({ form, update, errors }) {
           <div className="grid sm:grid-cols-2 gap-3 text-sm">
             <SummaryRow label="Company" value={form.companyName || '—'} />
             <SummaryRow label="Industry" value={form.industry || '—'} />
+            <SummaryRow label="Frameworks" value={form.frameworks.join(' + ') || '—'} />
             <SummaryRow label="Location" value={[form.city, form.country].filter(Boolean).join(', ') || '—'} />
             <SummaryRow label="Primary Contact" value={form.contactName || '—'} />
             <SummaryRow label="Contact Email" value={form.officialEmail || '—'} />

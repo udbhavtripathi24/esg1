@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Fingerprint } from 'lucide-react'
 import { Button, Field, Input } from '../../components/ui.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -71,6 +71,8 @@ export default function Login() {
       // message.
       if (err.status === 401) {
         setErrors({ auth: 'Incorrect email or password. Please try again.' })
+      } else if (err.status === 429) {
+        setErrors({ auth: err.message || 'Too many sign-in attempts. Please wait a few minutes and try again.' })
       } else if (err.status === 403) {
         setErrors({ auth: err.message || 'This account is inactive. Contact your administrator.' })
       } else if (err.isNetworkError) {
@@ -190,10 +192,11 @@ export default function Login() {
                 <label className="text-sm text-ink-700">
                   Password<span className="text-status-pending">*</span>
                 </label>
-                <a href="#" className="text-xs text-brand-green hover:underline">Forgot password?</a>
+                <Link to="/forgot-password" className="text-xs text-brand-green hover:underline">Forgot password?</Link>
               </div>
               <Input
                 type="password"
+                autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setErrors((er) => ({ ...er, password: null, auth: null })) }}
@@ -203,23 +206,8 @@ export default function Login() {
               {errors.password && <p className="text-xs text-status-pending mt-1">{errors.password}</p>}
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-ink-500">
-              <input type="checkbox" className="rounded border-surface-border" />
-              Remember me
-            </label>
-
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
               {isSubmitting ? 'Signing in…' : 'Sign in'}
-            </Button>
-
-            <div className="flex items-center gap-3 text-xs text-ink-300">
-              <div className="flex-1 h-px bg-surface-border" />
-              or
-              <div className="flex-1 h-px bg-surface-border" />
-            </div>
-
-            <Button type="button" variant="ghost" className="w-full" size="lg" disabled={isSubmitting}>
-              Sign in with Microsoft SSO
             </Button>
           </form>
 

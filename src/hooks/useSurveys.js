@@ -115,5 +115,8 @@ function useAudienceMutation(id, fn) {
 
 export const useAddInvites = (id) => useAudienceMutation(id, (body) => api.addInvites(id, body))
 export const useRemoveInvite = (id) => useAudienceMutation(id, (inviteId) => api.removeInvite(id, inviteId))
-export const useRenewLinks = (id) => useAudienceMutation(id, (inviteIds) => api.renewLinks(id, inviteIds))
+export const useRenewLinks = (id) =>
+  useAudienceMutation(id, (arg) => (Array.isArray(arg) || arg == null
+    ? api.renewLinks(id, arg)
+    : api.renewLinks(id, arg.inviteIds, arg.sendEmail)))
 export const useRemind = (id) => useAudienceMutation(id, () => api.remind(id))
