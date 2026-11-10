@@ -10,6 +10,7 @@ import { useDatasetVersions } from '../hooks/useDatasets.js'
 import { useReviews, useAssignReview, useDecideReview, useComments, useCreateComment } from '../hooks/useReviews.js'
 import { useKpiValidation, useDataPreview } from '../hooks/useKpiValues.js'
 import SheetPreview from './review/SheetPreview.jsx'
+import AiUploadCheck from './ai/AiUploadCheck.jsx'
 import { DATASET_STATUS } from './datasetStatus.js'
 
 const TABS = [
@@ -234,7 +235,10 @@ export default function ReviewDataWorkspace({ dataset, companyName, uploaderName
                     onRetry={() => dataPreviewQuery.refetch()}
                   />
                 ) : dataPreviewQuery.data?.sheet ? (
-                  <SheetPreview data={dataPreviewQuery.data} />
+                  <div className="space-y-4">
+                    <AiUploadCheck ds={dataset.public_id} v={currentVersion.public_id} />
+                    <SheetPreview data={dataPreviewQuery.data} />
+                  </div>
                 ) : previewRows.length === 0 ? (
                   <div className="text-center py-10">
                     <FileText size={28} className="text-ink-200 mx-auto mb-3" />

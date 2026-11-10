@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowDownRight, ArrowUpRight, Info, Lightbulb, Minus } from 'lucide-react'
 import { Card, EmptyState, Select } from '../ui.jsx'
 import LoadingState from '../LoadingState.jsx'
@@ -26,7 +26,7 @@ export function Change({ value, previous, better, previousFy, small }) {
 }
 
 /** Analytics → Performance: one ESG domain at a time, from approved data, with filters on top. */
-export default function PerformanceView({ companyId = null }) {
+export default function PerformanceView({ companyId = null, onContext }) {
   const [fy, setFy] = useState(null)
   const [location, setLocation] = useState('')
   const [domainKey, setDomainKey] = useState('energy')
@@ -37,6 +37,8 @@ export default function PerformanceView({ companyId = null }) {
   const base = { fy: fy || undefined, location: location || undefined }
   const values = useKpiValues({ codes: ALL_CODES, ...base }, companyId)
   const year = values.data?.fy
+  // Tell the page what is on screen, so Analyze with AI covers the same year, location and domain.
+  useEffect(() => { if (year) onContext?.({ fy: year, location: location || null, domain: domainKey }) }, [year, location, domainKey, onContext])
   const monthCodes = [domain.headline.code, ...domain.mix.parts.map((p) => p[0])].join(',')
   const month = useKpiSeries({ codes: monthCodes, by: 'month', fy: year, location: location || undefined }, companyId, { enabled: !!year })
   const prev = useKpiSeries({ codes: domain.headline.code, by: 'month', fy: values.data?.previous_fy, location: location || undefined }, companyId, { enabled: !!year })

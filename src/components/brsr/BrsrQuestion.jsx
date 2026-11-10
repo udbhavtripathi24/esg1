@@ -94,7 +94,8 @@ function TextAnswer({ q, value, onChange, disabled, pushToast }) {
         <span className={`text-[9px] ${q.max_words && words > q.max_words ? 'text-status-pending' : 'text-ink-300'}`}>
           {words} words{q.max_words ? ` / ${q.max_words} max` : ''}
         </span>
-        {!disabled && <AiWritingAssistant pushToast={pushToast} />}
+        {!disabled && <AiWritingAssistant pushToast={pushToast} text={text} question={q.prompt} maxWords={q.max_words}
+          onApply={(t) => onChange({ ...value, text: t })} />}
       </div>
     </div>
   )
